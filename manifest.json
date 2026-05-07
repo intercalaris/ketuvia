@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Rechunk Captions for YouTube",
+  "version": "1.0.0",
+  "description": "Replaces YouTube's word-by-word auto-captions with phrase-based captions for better readability and accessibility.",
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/*", "*://m.youtube.com/*"],
+      "js": ["inject.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    }
+  ]
+}
