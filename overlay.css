@@ -10,7 +10,7 @@
   z-index: 60;
   pointer-events: none;
   font-family: "YouTube Sans", "Roboto", system-ui, sans-serif;
-  font-size: clamp(14px, 1.5vw, 18px);
+  font-size: clamp(20px, 2vw, 28px);
   line-height: 1.4;
   font-weight: 600;
   color: #fff;
