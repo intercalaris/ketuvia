@@ -24,13 +24,19 @@
 
   // ── Settings ──────────────────────────────────────────────────────────────
   const CFG = {
-    pauseMs:     500,    // shorter pause = more natural phrase breaks
-    maxChars:    120,   // ~two sentences per chunk
-    maxWords:    22,
-    maxDurMs:    7000,
-    minDurMs:    1200,
-    lookaheadMs: 1200,   // 1.2s early so reader can absorb before audio
-    pollMs:      100,
+    // Only split early on genuine silence
+    hardPauseMs: 2200,
+    // Preferred subtitle fullness
+    targetChars: 105,
+    // Absolute limits
+    maxChars: 135,
+    maxWords: 18,
+    // Timing limits
+    maxDurMs: 5200,
+    minDurMs: 1800,
+    // Slight anticipation improves readability
+    lookaheadMs: 1000,
+    pollMs: 100,
   };
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -179,6 +185,18 @@
           warn('setOption failed: ' + e.message);
           setStatus('error');
         }
+        // If the timedtext intercept doesn't fire within 6 s, the initial fetch
+        // probably went through a service worker cache our patch can't see.
+        // Surface a helpful message so the user knows to click the CC button once.
+        setTimeout(() => {
+          if (STATE.statusMode === 'loading') {
+            warn('timedtext not intercepted after 6s — prompting user');
+            STATE.statusMode = 'error';
+            updateButton();
+            mountOverlay();
+            flashOverlay('Rechunk: click the CC button twice to activate');
+          }
+        }, 6000);
       } else {
         setTimeout(attempt, 300);
       }
@@ -213,41 +231,130 @@
     return out;
   }
 
-  function chunkWords(words, cfg) {
-    const chunks = [];
-    let cur = null;
-    const flush = (nextStart) => {
-      if (!cur) return;
-      let text = '';
-      for (let i = 0; i < cur.words.length; i++) {
-        const seg = cur.words[i].text;
-        if (i === 0) { text = seg; continue; }
-        if (!text.endsWith(' ') && !seg.startsWith(' ')) text += ' ';
-        text += seg;
+function chunkWords(words, cfg) {
+  const chunks = [];
+  let cur = null;
+
+  const flush = (nextStart) => {
+    if (!cur) return;
+
+    let text = '';
+
+    for (let i = 0; i < cur.words.length; i++) {
+      const seg = cur.words[i].text;
+
+      if (i === 0) {
+        text = seg;
+        continue;
       }
-      text = text.replace(/\s+/g, ' ').trim();
-      if (text) {
-        const lastWordStart = cur.words[cur.words.length - 1].start;
-        let end = nextStart != null ? nextStart : (lastWordStart + cfg.minDurMs);
-        if (end - cur.start < cfg.minDurMs) end = cur.start + cfg.minDurMs;
-        if (end - cur.start > cfg.maxDurMs) end = cur.start + cfg.maxDurMs;
-        chunks.push({ startMs: cur.start, endMs: end, text });
+
+      if (!text.endsWith(' ') && !seg.startsWith(' ')) {
+        text += ' ';
       }
-      cur = null;
-    };
-    for (const w of words) {
-      if (!cur) { cur = { words: [w], start: w.start }; continue; }
-      const prev = cur.words[cur.words.length - 1];
-      const gap      = w.start - prev.start;
-      const tentLen  = cur.words.reduce((n, x) => n + x.text.length, 0) + w.text.length;
-      const dur      = w.start - cur.start;
-      if (gap >= cfg.pauseMs || tentLen > cfg.maxChars || cur.words.length + 1 > cfg.maxWords || dur > cfg.maxDurMs) {
-        flush(w.start); cur = { words: [w], start: w.start };
-      } else cur.words.push(w);
+
+      text += seg;
     }
-    flush();
-    return chunks;
+
+    text = text.replace(/\s+/g, ' ').trim();
+
+    if (text) {
+      const lastWordStart =
+        cur.words[cur.words.length - 1].start;
+
+      let end =
+        nextStart != null
+          ? nextStart
+          : (lastWordStart + cfg.minDurMs);
+
+      if (end - cur.start < cfg.minDurMs) {
+        end = cur.start + cfg.minDurMs;
+      }
+
+      if (end - cur.start > cfg.maxDurMs) {
+        end = cur.start + cfg.maxDurMs;
+      }
+
+      chunks.push({
+        startMs: cur.start,
+        endMs: end,
+        text,
+      });
+    }
+
+    cur = null;
+  };
+
+  for (const w of words) {
+    if (!cur) {
+      cur = {
+        words: [w],
+        start: w.start,
+      };
+      continue;
+    }
+
+    const prev =
+      cur.words[cur.words.length - 1];
+
+    const gap =
+      w.start - prev.start;
+
+    const curLen =
+      cur.words.reduce(
+        (n, x) => n + x.text.length,
+        0
+      );
+
+    const nextLen =
+      curLen + w.text.length;
+
+    const nextWords =
+      cur.words.length + 1;
+
+    const dur =
+      w.start - cur.start;
+
+    // Real silence in speech
+    const hardPause =
+      gap >= cfg.hardPauseMs;
+
+    // Preferred readable size reached
+    const reachedTarget =
+      curLen >= cfg.targetChars;
+
+    // Absolute safety limits
+    const tooLong =
+      nextLen > cfg.maxChars ||
+      nextWords > cfg.maxWords ||
+      dur > cfg.maxDurMs;
+
+    // Split only if:
+    // 1. real silence
+    // 2. hard limits exceeded
+    // 3. already at preferred size and adding more would overshoot
+    if (
+      hardPause ||
+      tooLong ||
+      (
+        reachedTarget &&
+        nextLen > cfg.targetChars
+      )
+    ) {
+      flush(w.start);
+
+      cur = {
+        words: [w],
+        start: w.start,
+      };
+    } else {
+      cur.words.push(w);
+    }
   }
+
+  flush();
+
+  return chunks;
+}
 
   // ── 5. Overlay + polling ──────────────────────────────────────────────────
   // Hide YouTube's native captions while our overlay is active.

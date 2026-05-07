@@ -1,23 +1,17 @@
-/* Rechunk Captions overlay
- *
- * Positioned inside #movie_player so it tracks fullscreen and theater mode
- * automatically. Sits above the progress bar area, centered horizontally.
- * Styled distinctly from YouTube's native CC so it's obvious which is which
- * if the user has both enabled.
- */
 #rechunk-overlay {
   position: absolute;
   left: 50%;
   bottom: 12%;
   transform: translateX(-50%);
-  max-width: 80%;
+  max-width: 82%;
   min-width: 0;
-  padding: 10px 18px;
+  min-height: 2.8em;
+  padding: 10px 20px;
   z-index: 60;
   pointer-events: none;
   font-family: "YouTube Sans", "Roboto", system-ui, sans-serif;
-  font-size: clamp(18px, 2.4vw, 30px);
-  line-height: 1.35;
+  font-size: clamp(14px, 1.5vw, 18px);
+  line-height: 1.4;
   font-weight: 600;
   color: #fff;
   text-align: center;
@@ -26,40 +20,69 @@
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   white-space: pre-wrap;
   word-wrap: break-word;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: opacity 80ms linear;
   opacity: 1;
 }
 #rechunk-overlay[data-empty="1"] {
   opacity: 0;
+  min-height: 0;
   padding: 0;
 }
 
-/* Hide our overlay when the player is in mini/inline modes where it would
-   collide with the chrome. The watch page is the primary target. */
 .ytp-miniplayer #rechunk-overlay,
 ytd-shorts #rechunk-overlay {
   display: none;
 }
-
-/* Toggle button in the right controls, styled to match YouTube's chrome */
 #rechunk-toggle {
-  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  height: 100%;
+  min-height: 100%;
+
+  font-family: inherit;
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.5px;
+  line-height: 1;
+
   color: #fff;
   background: transparent;
   border: none;
   cursor: pointer;
+
   padding: 0 8px;
-  height: 100%;
-  vertical-align: top;
+
   opacity: 0.85;
   transition: opacity 120ms;
 }
-#rechunk-toggle:hover { opacity: 1; }
-#rechunk-toggle[data-enabled="0"]                 { color: #888; text-decoration: line-through; }
-#rechunk-toggle[data-status="loading"]            { color: #ffd35a; }
-#rechunk-toggle[data-status="active"]             { color: #5dffb3; }
-#rechunk-toggle[data-status="unavailable"]        { color: #888; }
-#rechunk-toggle[data-status="error"]              { color: #ff7676; }
+
+#rechunk-toggle:hover {
+  opacity: 1;
+}
+
+#rechunk-toggle[data-enabled="0"] {
+  color: #8a8a8a;
+  opacity: 0.55;
+}
+
+#rechunk-toggle[data-status="loading"] {
+  color: #ffd35a;
+}
+
+#rechunk-toggle[data-status="active"][data-enabled="1"] {
+  color: #5dffb3;
+  opacity: 1;
+}
+
+#rechunk-toggle[data-status="unavailable"] {
+  color: #8a8a8a;
+}
+
+#rechunk-toggle[data-status="error"] {
+  color: #ff7476;
+}
