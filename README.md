@@ -1,5 +1,4 @@
-
-Rechunk Captions for YouTube
+KETUVIA
 
 This extension replaces YouTube’s word-by-word auto captions with phrase-level captions that are easier to read. YouTube’s auto captions often appear one word at a time as speech is processed, which creates fragmented and hard-to-follow text. This extension fixes that by reading the same caption data, grouping words into natural phrase chunks, and displaying them as continuous sentences instead of incremental word updates. It exists for deaf and hard-of-hearing users, people with sensory processing disorders, language learners, and anyone who finds word-by-word caption rendering difficult to follow. It only affects videos with auto-generated captions and does not modify manual captions.
 
