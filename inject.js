@@ -80,39 +80,72 @@
     } catch { return url; }
   }
 
-  // Patch fetch
   const _origFetch = window.fetch;
-  window.fetch = async function rechunkFetchPatch(input, init) {
-    const url = typeof input === 'string' ? input
-              : (input instanceof Request ? input.url : String(input));
-    if (url.includes('/api/timedtext')) {
-      const newUrl = rewriteTimedtextUrl(url);
-      const newInput = typeof input === 'string' ? newUrl
-                     : input instanceof Request   ? new Request(newUrl, input)
-                     : newUrl;
-      const resp = await _origFetch.call(window, newInput, init);
-      resp.clone().text().then(t => onTimedtextBody(newUrl, t)).catch(() => {});
-      return resp;
-    }
-    return _origFetch.apply(window, arguments);
-  };
+
+    window.fetch = async function (input, init) {
+      const url =
+        typeof input === 'string'
+          ? input
+          : input instanceof Request
+            ? input.url
+            : String(input);
+
+      const isTimedtext = url.includes('timedtext');
+
+      if (isTimedtext) {
+        const newUrl = rewriteTimedtextUrl(url);
+
+        const req =
+          typeof input === 'string'
+            ? newUrl
+            : new Request(newUrl, input);
+
+        const resp = await _origFetch.call(this, req, init);
+
+        resp.clone().text()
+          .then(t => onTimedtextBody(newUrl, t))
+          .catch(() => {});
+
+        return resp;
+      }
+
+      return _origFetch.apply(this, arguments);
+    };
 
   // Patch XHR (YouTube player may use XHR instead of fetch)
   const _XHROpen = XMLHttpRequest.prototype.open;
   const _XHRSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function rechunkXHROpen(method, url) {
-    if (typeof url === 'string' && url.includes('/api/timedtext')) {
-      this._rechunkUrl = rewriteTimedtextUrl(url);
-      return _XHROpen.call(this, method, this._rechunkUrl, ...Array.prototype.slice.call(arguments, 2));
-    }
-    return _XHROpen.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function rechunkXHRSend() {
-    if (this._rechunkUrl) {
-      this.addEventListener('load', () => onTimedtextBody(this._rechunkUrl, this.responseText));
-    }
-    return _XHRSend.apply(this, arguments);
-  };
+
+    XMLHttpRequest.prototype.open = function (method, url) {
+      const isTimedtext =
+        typeof url === 'string' &&
+        url.includes('timedtext');
+
+      if (isTimedtext) {
+        const newUrl = rewriteTimedtextUrl(url);
+        this._rechunkUrl = newUrl;
+
+        return _XHROpen.call(
+          this,
+          method,
+          newUrl,
+          ...Array.prototype.slice.call(arguments, 2)
+        );
+      }
+
+      return _XHROpen.apply(this, arguments);
+    };
+
+    XMLHttpRequest.prototype.send = function () {
+      const args = arguments;
+      if (this._rechunkUrl) {
+        this.addEventListener('load', () => {
+          onTimedtextBody(this._rechunkUrl, this.responseText);
+        });
+      }
+
+      return _XHRSend.apply(this, args);
+    };
 
   // ── 2. Process intercepted json3 data ─────────────────────────────────────
   function processTimedtext(text) {
