@@ -24,12 +24,12 @@
 
   // ── Settings ──────────────────────────────────────────────────────────────
   const CFG = {
-    pauseMs:     700,
-    maxChars:    80,
-    maxWords:    14,
-    maxDurMs:    6000,
+    pauseMs:     500,    // shorter pause = more natural phrase breaks
+    maxChars:    120,   // ~two sentences per chunk
+    maxWords:    22,
+    maxDurMs:    7000,
     minDurMs:    1200,
-    lookaheadMs: 400,
+    lookaheadMs: 1200,   // 1.2s early so reader can absorb before audio
     pollMs:      100,
   };
 
@@ -218,7 +218,14 @@
     let cur = null;
     const flush = (nextStart) => {
       if (!cur) return;
-      const text = cur.words.map(w => w.text).join('').replace(/\s+/g, ' ').trim();
+      let text = '';
+      for (let i = 0; i < cur.words.length; i++) {
+        const seg = cur.words[i].text;
+        if (i === 0) { text = seg; continue; }
+        if (!text.endsWith(' ') && !seg.startsWith(' ')) text += ' ';
+        text += seg;
+      }
+      text = text.replace(/\s+/g, ' ').trim();
       if (text) {
         const lastWordStart = cur.words[cur.words.length - 1].start;
         let end = nextStart != null ? nextStart : (lastWordStart + cfg.minDurMs);
