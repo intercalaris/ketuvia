@@ -1,64 +1,36 @@
-/* Rechunk Captions for YouTube
- *
- * Single path of operation:
- *   1. At document_start (MAIN world), patch window.fetch and XMLHttpRequest
- *      to intercept YouTube's OWN timedtext requests. The player generates
- *      a short-lived Proof-of-Origin Token (pot) for these requests — we
- *      cannot replicate it, so we intercept the player's request instead of
- *      making our own. We modify the intercepted URL to use fmt=json3 (fmt
- *      is not in sparams so the signature stays valid) and capture the body.
- *   2. At DOMContentLoaded / yt-navigate-finish, read ytInitialPlayerResponse
- *      to detect which video is playing and whether it has an ASR track.
- *   3. Once the player is ready, call player.setOption('captions','track',…)
- *      to trigger caption loading if YouTube hasn't already done so.
- *   4. The interceptor receives the json3 response, runs the chunker, mounts
- *      the overlay, and starts the 100ms sync loop.
- *
- * No timedtext requests are made by this extension. No backup paths.
- */
 (() => {
   'use strict';
 
   if (window.__rechunkCaptionsLoaded) return;
   window.__rechunkCaptionsLoaded = true;
 
-  // ── Settings ──────────────────────────────────────────────────────────────
+
   const CFG = {
-    // Only split early on genuine silence
     hardPauseMs: 2200,
-    // Preferred subtitle fullness
     targetChars: 180,
-    // Absolute limits
     maxChars: 260,
     maxWords: 40,
-    // Timing limits
     maxDurMs: 5200,
     minDurMs: 1800,
-    // Slight anticipation improves readability
     lookaheadMs: 1000,
     pollMs: 100,
   };
 
-  // ── State ─────────────────────────────────────────────────────────────────
   const STATE = {
     enabled:    true,
     videoId:    null,
-    asrLang:    null,   // language code of detected ASR track
+    asrLang:    null,   
     chunks:     [],
     overlay:    null,
     pollId:     null,
     button:     null,
     lastText:   null,
     statusMode: 'idle',
-    triggered:  false,  // did we already call setOption for this video?
+    triggered:  false,  
   };
 
   const log  = (...a) => console.log('%c[Rechunk]', 'color:#7cf', ...a);
   const warn = (...a) => console.warn('[Rechunk]', ...a);
-
-  // ── 1. Intercept YouTube's timedtext requests ─────────────────────────────
-  // We rewrite the URL to use fmt=json3 and capture the body.
-  // fmt is NOT in sparams, so the HMAC signature stays valid.
 
   function onTimedtextBody(url, text) {
     if (!text || text.length === 0) return;
@@ -66,7 +38,6 @@
     try { vid = new URL(url).searchParams.get('v'); } catch { return; }
     if (!vid) return;
     log('intercepted timedtext vid=' + vid + ' len=' + text.length);
-    // Accept even if we haven't matched the video yet (initial load race)
     if (STATE.videoId && vid !== STATE.videoId) return;
     if (!STATE.videoId) STATE.videoId = vid;
     processTimedtext(text);
@@ -112,7 +83,6 @@
       return _origFetch.apply(this, arguments);
     };
 
-  // Patch XHR (YouTube player may use XHR instead of fetch)
   const _XHROpen = XMLHttpRequest.prototype.open;
   const _XHRSend = XMLHttpRequest.prototype.send;
 
@@ -147,7 +117,6 @@
       return _XHRSend.apply(this, args);
     };
 
-  // ── 2. Process intercepted json3 data ─────────────────────────────────────
   function processTimedtext(text) {
     let data;
     try { data = JSON.parse(text); }
@@ -167,7 +136,6 @@
     startPolling();
   }
 
-  // ── 3. Navigation / player setup ──────────────────────────────────────────
   function currentVideoId() {
     if (location.pathname !== '/watch') return null;
     try { return new URL(location.href).searchParams.get('v'); } catch { return null; }
@@ -180,7 +148,6 @@
     resetForNewVideo();
     STATE.videoId = vid;
 
-    // Read ASR track from ytInitialPlayerResponse (no network needed)
     const pr = window.ytInitialPlayerResponse;
     const tracks = pr && pr.captions
                 && pr.captions.playerCaptionsTracklistRenderer
@@ -196,12 +163,9 @@
     log('asr track lang=' + STATE.asrLang + ' for ' + vid);
     ensureButton();
     setStatus('loading');
-    // Trigger caption loading once the player is ready
     waitForPlayerThenTrigger();
   }
 
-  // Poll until the player element exposes setOption, then trigger caption load.
-  // YouTube's player will fetch timedtext; our interceptor captures the response.
   function waitForPlayerThenTrigger() {
     if (STATE.triggered) return;
     const attempt = () => {
@@ -218,9 +182,7 @@
           warn('setOption failed: ' + e.message);
           setStatus('error');
         }
-        // If the timedtext intercept doesn't fire within 6 s, the initial fetch
-        // probably went through a service worker cache our patch can't see.
-        // Surface a helpful message so the user knows to click the CC button once.
+
         setTimeout(() => {
           if (STATE.statusMode === 'loading') {
             warn('timedtext not intercepted after 6s — prompting user');
@@ -245,7 +207,6 @@
   document.addEventListener('yt-navigate-start',  () => { if (STATE.videoId && currentVideoId() !== STATE.videoId) resetForNewVideo(); }, true);
   document.addEventListener('yt-navigate-finish', checkNavigation, true);
 
-  // ── 4. JSON3 word extraction + chunker ────────────────────────────────────
   function extractWords(json3) {
     const out = [];
     let lastStart = -1;
@@ -367,15 +328,12 @@ function chunkWords(words, cfg) {
     const dur =
       w.start - cur.start;
 
-    // Real silence in speech
     const hardPause =
       gap >= cfg.hardPauseMs;
 
-    // Preferred readable size reached
     const reachedTarget =
       curLen >= cfg.targetChars;
 
-    // Absolute safety limits
     const tooLong =
       nextLen > cfg.maxChars ||
 
@@ -474,10 +432,6 @@ function chunkWords(words, cfg) {
 
         console.groupEnd();
       }
-    // Split only if:
-    // 1. real silence
-    // 2. hard limits exceeded
-    // 3. already at preferred size and adding more would overshoot
     if (
       hardPause ||
       tooLong
@@ -498,13 +452,10 @@ function chunkWords(words, cfg) {
   return chunks;
 }
 
-  // ── 5. Overlay + polling ──────────────────────────────────────────────────
-  // Hide YouTube's native captions while our overlay is active.
   const _captionHideStyle = document.createElement('style');
   _captionHideStyle.textContent = '.ytp-caption-window-container{visibility:hidden!important}';
 
   function mountOverlay() {
-    // Hide YouTube's word-by-word captions
     if (!document.head.contains(_captionHideStyle)) document.head.appendChild(_captionHideStyle);
 
     if (STATE.overlay && document.body.contains(STATE.overlay)) return;
@@ -571,7 +522,6 @@ function chunkWords(words, cfg) {
     updateButton();
   }
 
-  // ── 6. Button ─────────────────────────────────────────────────────────────
   function setStatus(mode) {
     STATE.statusMode = mode;
     updateButton();
