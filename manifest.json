@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Rechunk Captions for YouTube",
-  "version": "1.0.0",
+  "name": "Ketuvia: accessible captions",
+  "version": "1.6.0",
   "description": "Replaces YouTube's word-by-word auto-captions with phrase-based captions for better readability and accessibility.",
   "content_scripts": [
     {

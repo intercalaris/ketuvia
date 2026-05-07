@@ -27,10 +27,10 @@
     // Only split early on genuine silence
     hardPauseMs: 2200,
     // Preferred subtitle fullness
-    targetChars: 105,
+    targetChars: 180,
     // Absolute limits
-    maxChars: 135,
-    maxWords: 18,
+    maxChars: 260,
+    maxWords: 40,
     // Timing limits
     maxDurMs: 5200,
     minDurMs: 1800,
@@ -299,17 +299,37 @@ function chunkWords(words, cfg) {
     const gap =
       w.start - prev.start;
 
+    const buildText = arr =>
+      arr
+        .map(x => x.text)
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const curText =
+      buildText(cur.words);
+
     const curLen =
-      cur.words.reduce(
-        (n, x) => n + x.text.length,
-        0
-      );
+      curText.length;
+
+    const nextText =
+      buildText([
+        ...cur.words,
+        w
+      ]);
 
     const nextLen =
-      curLen + w.text.length;
+      nextText.length;
+      
+      
 
     const nextWords =
-      cur.words.length + 1;
+      (
+        curText + ' ' + w.text
+      )
+      .trim()
+      .split(/\s+/)
+      .length;
 
     const dur =
       w.start - cur.start;
@@ -325,21 +345,110 @@ function chunkWords(words, cfg) {
     // Absolute safety limits
     const tooLong =
       nextLen > cfg.maxChars ||
-      nextWords > cfg.maxWords ||
-      dur > cfg.maxDurMs;
 
+      (
+        dur > cfg.maxDurMs &&
+        (
+          curLen >= 120 ||
+          nextWords >= 20
+        )
+      );
+    
+    const splitReasons = [];
+
+      if (hardPause) {
+        splitReasons.push(
+          `hardPause gap=${gap}`
+        );
+      }
+
+      if (nextLen > cfg.maxChars) {
+        splitReasons.push(
+          `maxChars nextLen=${nextLen}`
+        );
+      }
+
+      if (
+        dur > cfg.maxDurMs &&
+        (
+          curLen >= 120 ||
+          nextWords >= 20
+        )
+      ) {
+        splitReasons.push(
+          `maxDur dur=${dur}`
+        );
+      }
+
+      if (splitReasons.length) {
+        console.group(
+          '%c[Rechunk Split]',
+          'color:#f66;font-weight:bold'
+        );
+
+        console.log(
+          'REASONS:',
+          splitReasons
+        );
+
+        console.log(
+          'CURRENT TEXT:',
+          curText
+        );
+
+        console.log(
+          'CURRENT LEN:',
+          curLen
+        );
+
+        console.log(
+          'NEXT WORD:',
+          JSON.stringify(w.text)
+        );
+
+        console.log(
+          'NEXT START:',
+          w.start
+        );
+
+        console.log(
+          'NEXT TEXT:',
+          nextText
+        );
+
+        console.log(
+          'NEXT LEN:',
+          nextLen
+        );
+
+        console.log(
+          'DURATION:',
+          dur
+        );
+
+        console.log(
+          'GAP:',
+          gap
+        );
+
+        console.log(
+          'WORDS ARRAY:',
+          cur.words.map(x => ({
+            start: x.start,
+            text: x.text
+          }))
+        );
+
+        console.groupEnd();
+      }
     // Split only if:
     // 1. real silence
     // 2. hard limits exceeded
     // 3. already at preferred size and adding more would overshoot
     if (
       hardPause ||
-      tooLong ||
-      (
-        reachedTarget &&
-        nextLen > cfg.targetChars
-      )
-    ) {
+      tooLong
+    ){
       flush(w.start);
 
       cur = {
