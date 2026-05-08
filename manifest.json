@@ -12,5 +12,16 @@
       "world": "MAIN",
       "all_frames": false
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/*",
+        "fonts/Atkinson_Hyperlegible/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }
