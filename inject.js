@@ -6,14 +6,15 @@
 
 
   const CFG = {
-    hardPauseMs: 2200,
-    targetChars: 180,
-    maxChars: 260,
-    maxWords: 40,
-    maxDurMs: 5200,
-    minDurMs: 1800,
-    lookaheadMs: 1000,
-    pollMs: 100,
+    hardPauseMs:   2200,
+    minBreakChars:   55,
+    targetChars:    105,
+    maxChars:       130,
+    maxWords:        40,
+    maxDurMs:      5200,
+    minDurMs:      1800,
+    lookaheadMs:   1000,
+    pollMs:         100,
   };
 
   const STATE = {
@@ -185,11 +186,11 @@
 
         setTimeout(() => {
           if (STATE.statusMode === 'loading') {
-            warn('timedtext not intercepted after 6s — prompting user');
+            warn('timedtext not intercepted after 6s - prompting user');
             STATE.statusMode = 'error';
             updateButton();
             mountOverlay();
-            flashOverlay('Rechunk: click the CC button twice to activate');
+            flashOverlay('Ketuvia: click the CC button twice to activate');
           }
         }, 6000);
       } else {
@@ -205,7 +206,7 @@
     checkNavigation();
   }
   document.addEventListener('yt-navigate-start',  () => { if (STATE.videoId && currentVideoId() !== STATE.videoId) resetForNewVideo(); }, true);
-  document.addEventListener('yt-navigate-finish', checkNavigation, true);
+  document.addEventListener('yt-navigate-finish', () => setTimeout(checkNavigation, 0), true);
 
   function extractWords(json3) {
     const out = [];
@@ -280,10 +281,7 @@ function chunkWords(words, cfg) {
 
   for (const w of words) {
     if (!cur) {
-      cur = {
-        words: [w],
-        start: w.start,
-      };
+      cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
       continue;
     }
 
@@ -293,156 +291,40 @@ function chunkWords(words, cfg) {
     const gap =
       w.start - prev.start;
 
-    const buildText = arr =>
-      arr
-        .map(x => x.text)
-        .join('')
-        .replace(/\s+/g, ' ')
-        .trim();
+    // curLen/nextLen tracked incrementally — no array rebuild per word.
+    const curLen  = cur.charLen;
+    const nextLen = curLen + (curLen > 0 && !prev.text.endsWith(' ') && !w.text.startsWith(' ') ? 1 : 0) + w.text.length;
+    const dur     = w.start - cur.start;
 
-    const curText =
-      buildText(cur.words);
+    const lastChar    = prev.text.trimEnd().slice(-1);
+    const hardPause   = gap >= cfg.hardPauseMs;
 
-    const curLen =
-      curText.length;
+    // sentence boundary
+    const sentenceEnd =
+      /[.!?]/.test(lastChar) &&
+      curLen >= cfg.minBreakChars;
 
-    const nextText =
-      buildText([
-        ...cur.words,
-        w
-      ]);
-
-    const nextLen =
-      nextText.length;
-      
-      
-
-    const nextWords =
-      (
-        curText + ' ' + w.text
-      )
-      .trim()
-      .split(/\s+/)
-      .length;
-
-    const dur =
-      w.start - cur.start;
-
-    const hardPause =
-      gap >= cfg.hardPauseMs;
-
-    const reachedTarget =
+    // clause boundary
+    const clauseEnd =
+      /[,;:]/.test(lastChar) &&
       curLen >= cfg.targetChars;
 
     const tooLong =
       nextLen > cfg.maxChars ||
+      (dur > cfg.maxDurMs && (curLen >= 120 || cur.wordCount + 1 >= 20));
 
-      (
-        dur > cfg.maxDurMs &&
-        (
-          curLen >= 120 ||
-          nextWords >= 20
-        )
-      );
-    
-    const splitReasons = [];
-
-      if (hardPause) {
-        splitReasons.push(
-          `hardPause gap=${gap}`
-        );
-      }
-
-      if (nextLen > cfg.maxChars) {
-        splitReasons.push(
-          `maxChars nextLen=${nextLen}`
-        );
-      }
-
-      if (
-        dur > cfg.maxDurMs &&
-        (
-          curLen >= 120 ||
-          nextWords >= 20
-        )
-      ) {
-        splitReasons.push(
-          `maxDur dur=${dur}`
-        );
-      }
-
-      if (splitReasons.length) {
-        console.group(
-          '%c[Rechunk Split]',
-          'color:#f66;font-weight:bold'
-        );
-
-        console.log(
-          'REASONS:',
-          splitReasons
-        );
-
-        console.log(
-          'CURRENT TEXT:',
-          curText
-        );
-
-        console.log(
-          'CURRENT LEN:',
-          curLen
-        );
-
-        console.log(
-          'NEXT WORD:',
-          JSON.stringify(w.text)
-        );
-
-        console.log(
-          'NEXT START:',
-          w.start
-        );
-
-        console.log(
-          'NEXT TEXT:',
-          nextText
-        );
-
-        console.log(
-          'NEXT LEN:',
-          nextLen
-        );
-
-        console.log(
-          'DURATION:',
-          dur
-        );
-
-        console.log(
-          'GAP:',
-          gap
-        );
-
-        console.log(
-          'WORDS ARRAY:',
-          cur.words.map(x => ({
-            start: x.start,
-            text: x.text
-          }))
-        );
-
-        console.groupEnd();
-      }
     if (
       hardPause ||
+      sentenceEnd ||
+      clauseEnd ||
       tooLong
     ){
       flush(w.start);
-
-      cur = {
-        words: [w],
-        start: w.start,
-      };
+      cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
     } else {
+      const needsSpace = !prev.text.endsWith(' ') && !w.text.startsWith(' ');
+      cur.charLen += (needsSpace ? 1 : 0) + w.text.length;
+      cur.wordCount += 1;
       cur.words.push(w);
     }
   }
@@ -525,7 +407,7 @@ function chunkWords(words, cfg) {
   function setStatus(mode) {
     STATE.statusMode = mode;
     updateButton();
-    if (mode === 'error') { mountOverlay(); flashOverlay('Rechunk Captions: failed to load'); }
+    if (mode === 'error') { mountOverlay(); flashOverlay('Ketuvia: failed to load captions'); }
   }
 
   function ensureButton() {
