@@ -15,6 +15,10 @@
     minDurMs:      1800,
     lookaheadMs:   1000,
     pollMs:         100,
+    navRetryMs:     250,
+    navRetryForMs: 8000,
+    triggerRetryMs: 900,
+    maxTriggerAttempts: 8,
   };
 
   const STATE = {
@@ -27,7 +31,11 @@
     button:     null,
     lastText:   null,
     statusMode: 'idle',
-    triggered:  false,  
+    triggered:  false,
+    navRetryId: null,
+    navRetryUntil: 0,
+    triggerRetryId: null,
+    triggerAttempts: 0,
   };
 
   const log = (...a) => console.log(
@@ -150,62 +158,174 @@
     try { return new URL(location.href).searchParams.get('v'); } catch { return null; }
   }
 
+  function readCaptionTracks() {
+    const pr = window.ytInitialPlayerResponse;
+    return pr && pr.captions
+        && pr.captions.playerCaptionsTracklistRenderer
+        && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
+  }
+
+  function clearNavRetry() {
+    if (STATE.navRetryId) clearTimeout(STATE.navRetryId);
+    STATE.navRetryId = null;
+    STATE.navRetryUntil = 0;
+  }
+
+  function scheduleNavRetry() {
+    if (!STATE.videoId || STATE.chunks.length) return;
+
+    if (!STATE.navRetryUntil) {
+      STATE.navRetryUntil = Date.now() + CFG.navRetryForMs;
+    }
+
+    if (STATE.navRetryId) return;
+
+    const remaining = STATE.navRetryUntil - Date.now();
+    if (remaining <= 0) {
+      clearNavRetry();
+      STATE.statusMode = 'unavailable';
+      ensureButton();
+      updateButton();
+      return;
+    }
+
+    STATE.navRetryId = setTimeout(() => {
+      STATE.navRetryId = null;
+      checkNavigation();
+    }, Math.min(CFG.navRetryMs, remaining));
+  }
+
+  function clearTriggerRetry() {
+    if (STATE.triggerRetryId) clearTimeout(STATE.triggerRetryId);
+    STATE.triggerRetryId = null;
+  }
+
+  function isCaptionsApiReady(player) {
+    if (!player || typeof player.getOptions !== 'function') return false;
+    try {
+      const options = player.getOptions('captions');
+      return Array.isArray(options) && options.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  function triggerCaptionLoad() {
+    if (!STATE.videoId || !STATE.asrLang || !STATE.enabled || STATE.chunks.length) return;
+
+    const player = document.getElementById('movie_player');
+    if (!player || typeof player.setOption !== 'function') {
+      clearTriggerRetry();
+      STATE.triggerRetryId = setTimeout(() => {
+        STATE.triggerRetryId = null;
+        triggerCaptionLoad();
+      }, 300);
+      return;
+    }
+
+    if (typeof player.loadModule === 'function') {
+      try { player.loadModule('captions'); } catch {}
+    }
+
+    if (!isCaptionsApiReady(player)) {
+      clearTriggerRetry();
+      STATE.triggerRetryId = setTimeout(() => {
+        STATE.triggerRetryId = null;
+        triggerCaptionLoad();
+      }, 300);
+      return;
+    }
+
+    STATE.triggerAttempts += 1;
+    STATE.triggered = true;
+    log(
+      'triggering caption load attempt=' +
+      STATE.triggerAttempts +
+      ' lang=' +
+      STATE.asrLang
+    );
+
+    let requested = false;
+
+    try {
+      player.setOption('captions', 'track', { languageCode: STATE.asrLang });
+      requested = true;
+    } catch (e) {
+      warn('setOption(track) failed: ' + e.message);
+    }
+
+    try {
+      player.setOption('captions', 'reload', true);
+      requested = true;
+    } catch {}
+
+    if (STATE.statusMode !== 'loading') {
+      setStatus('loading');
+    }
+
+    clearTriggerRetry();
+    STATE.triggerRetryId = setTimeout(() => {
+      STATE.triggerRetryId = null;
+      if (STATE.chunks.length || !STATE.enabled || !STATE.videoId) return;
+
+      if (!requested || STATE.triggerAttempts < CFG.maxTriggerAttempts) {
+        triggerCaptionLoad();
+        return;
+      }
+
+      warn('timedtext not intercepted after ' + STATE.triggerAttempts + ' attempts');
+      setStatus('error');
+      mountOverlay();
+      flashOverlay('Ketuvia: click the CC button twice to activate');
+    }, CFG.triggerRetryMs);
+  }
+
   function checkNavigation() {
     const vid = currentVideoId();
     if (!vid) { if (STATE.videoId) resetForNewVideo(); return; }
-    if (vid === STATE.videoId) return;
-    resetForNewVideo();
-    STATE.videoId = vid;
 
-    const pr = window.ytInitialPlayerResponse;
-    const tracks = pr && pr.captions
-                && pr.captions.playerCaptionsTracklistRenderer
-                && pr.captions.playerCaptionsTracklistRenderer.captionTracks;
-    if (!tracks || !tracks.length) {
-      STATE.statusMode = 'unavailable'; ensureButton(); updateButton(); return;
+    const isSameVideo = vid === STATE.videoId;
+    if (!isSameVideo) {
+      resetForNewVideo();
+      STATE.videoId = vid;
+      STATE.navRetryUntil = Date.now() + CFG.navRetryForMs;
     }
+
+    const tracks = readCaptionTracks();
+    if (!tracks || !tracks.length) {
+      ensureButton();
+      setStatus('loading');
+      scheduleNavRetry();
+      return;
+    }
+
+    clearNavRetry();
+
     const asr = tracks.find(t => t.kind === 'asr');
     if (!asr) {
       STATE.statusMode = 'unavailable'; ensureButton(); updateButton(); return;
     }
+
     STATE.asrLang = asr.languageCode || 'en';
-    log('asr track lang=' + STATE.asrLang + ' for ' + vid);
+    if (!isSameVideo || STATE.statusMode !== 'active') {
+      log('asr track lang=' + STATE.asrLang + ' for ' + vid);
+    }
+
     ensureButton();
-    setStatus('loading');
-    waitForPlayerThenTrigger();
+    if (STATE.enabled && !STATE.chunks.length) {
+      setStatus('loading');
+      waitForPlayerThenTrigger();
+    }
   }
 
   function waitForPlayerThenTrigger() {
-    if (STATE.triggered) return;
-    const attempt = () => {
-      if (!STATE.videoId) return; // navigated away
-      if (STATE.statusMode === 'active') return; // already captured
-      const player = document.getElementById('movie_player');
-      if (player && typeof player.setOption === 'function') {
-        if (STATE.triggered) return;
-        STATE.triggered = true;
-        log('triggering caption load lang=' + STATE.asrLang);
-        try {
-          player.setOption('captions', 'track', { languageCode: STATE.asrLang });
-        } catch (e) {
-          warn('setOption failed: ' + e.message);
-          setStatus('error');
-        }
-
-        setTimeout(() => {
-          if (STATE.statusMode === 'loading') {
-            warn('timedtext not intercepted after 6s - prompting user');
-            STATE.statusMode = 'error';
-            updateButton();
-            mountOverlay();
-            flashOverlay('Ketuvia: click the CC button twice to activate');
-          }
-        }, 6000);
-      } else {
-        setTimeout(attempt, 300);
-      }
-    };
-    setTimeout(attempt, 500);
+    if (STATE.statusMode === 'active' || !STATE.enabled || STATE.chunks.length) return;
+    if (STATE.triggerRetryId) return;
+    clearTriggerRetry();
+    STATE.triggerRetryId = setTimeout(() => {
+      STATE.triggerRetryId = null;
+      triggerCaptionLoad();
+    }, 500);
   }
 
   if (document.readyState === 'loading') {
@@ -412,6 +532,8 @@ function chunkWords(words, cfg) {
 
   function resetForNewVideo() {
     if (STATE.pollId) clearInterval(STATE.pollId);
+    clearNavRetry();
+    clearTriggerRetry();
     if (STATE.overlay && STATE.overlay.parentNode) STATE.overlay.parentNode.removeChild(STATE.overlay);
     if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
     STATE.pollId     = null;
@@ -421,6 +543,7 @@ function chunkWords(words, cfg) {
     STATE.videoId    = null;
     STATE.lastText   = null;
     STATE.triggered  = false;
+    STATE.triggerAttempts = 0;
     STATE.statusMode = 'idle';
     updateButton();
   }
