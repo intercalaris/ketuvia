@@ -1,13 +1,13 @@
 @font-face {
   font-family: "Atkinson Hyperlegible";
-  src: url("./fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Regular.ttf") format("truetype");
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Atkinson Hyperlegible";
-  src: url("./fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Bold.ttf") format("truetype");
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
 }
@@ -26,10 +26,7 @@
 
   font-family:
     "Atkinson Hyperlegible",
-    "Inter",
-    "Roboto",
-    system-ui,
-    sans-serif;
+    sans-serif !important;
 
   font-size: clamp(20px, 2vw, 28px);
   line-height: 1.4;
@@ -51,6 +48,9 @@
 
   transition: opacity 80ms linear;
   opacity: 1;
+
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 #rechunk-overlay[data-empty="1"] {
