@@ -302,7 +302,7 @@ function chunkWords(words, cfg) {
     // sentence boundary
     const sentenceEnd =
       /[.!?]/.test(lastChar) &&
-      curLen >= cfg.minBreakChars;
+      curLen >= cfg.targetChars;
 
     // clause boundary
     const clauseEnd =
@@ -311,8 +311,7 @@ function chunkWords(words, cfg) {
 
     const tooLong =
       nextLen > cfg.maxChars ||
-      (dur > cfg.maxDurMs && (curLen >= 120 || cur.wordCount + 1 >= 20));
-
+      (curLen >= cfg.targetChars && dur > cfg.maxDurMs);
     if (
       hardPause ||
       sentenceEnd ||
