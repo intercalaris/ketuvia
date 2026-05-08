@@ -328,18 +328,18 @@ function chunkWords(words, cfg) {
         .map(w => w.text)
         .join('');
 
-      console.log('[Rechunk][split]', {
-        reason: hardPause ? 'hardPause'
-              : sentenceEnd ? 'sentenceEnd'
-              : clauseEnd ? 'clauseEnd'
-              : 'tooLong',
-        curLen,
-        nextLen,
-        gap,
-        dur,
-        preview: sentencePreview,
-        next: w.text
-      });
+      // console.log('[Rechunk][split]', {
+      //   reason: hardPause ? 'hardPause'
+      //         : sentenceEnd ? 'sentenceEnd'
+      //         : clauseEnd ? 'clauseEnd'
+      //         : 'tooLong',
+      //   curLen,
+      //   nextLen,
+      //   gap,
+      //   dur,
+      //   preview: sentencePreview,
+      //   next: w.text
+      // });
       flush(w.start);
       cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
     } else {
