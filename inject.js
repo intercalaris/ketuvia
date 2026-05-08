@@ -7,7 +7,7 @@
 
   const CFG = {
     hardPauseMs:   8000,
-    minBreakChars:  70,
+    minBreakChars:  80,
     targetChars:    110,
     maxChars:       120,
     maxWords:        40,
