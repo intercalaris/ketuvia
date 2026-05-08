@@ -15,7 +15,7 @@
 #rechunk-overlay {
   position: absolute;
   left: 50%;
-  bottom: 12%;
+  bottom: 9%;
   transform: translateX(-50%);
   max-width: 82%;
   min-width: 0;
