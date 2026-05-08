@@ -6,10 +6,10 @@
 
 
   const CFG = {
-    hardPauseMs:   2200,
-    minBreakChars:   55,
-    targetChars:    105,
-    maxChars:       130,
+    hardPauseMs:   8000,
+    minBreakChars:  70,
+    targetChars:    110,
+    maxChars:       120,
     maxWords:        40,
     maxDurMs:      5200,
     minDurMs:      1800,
@@ -30,9 +30,17 @@
     triggered:  false,  
   };
 
-  const log  = (...a) => console.log('%c[Rechunk]', 'color:#7cf', ...a);
-  const warn = (...a) => console.warn('[Rechunk]', ...a);
+  const log = (...a) => console.log(
+    '[Rechunk]',
+    new Date().toISOString(),
+    ...a
+  );
 
+  const warn = (...a) => console.warn(
+    '[Rechunk]',
+    new Date().toISOString(),
+    ...a
+  );
   function onTimedtextBody(url, text) {
     if (!text || text.length === 0) return;
     let vid;
@@ -301,13 +309,10 @@ function chunkWords(words, cfg) {
 
     // sentence boundary
     const sentenceEnd =
-      /[.!?]/.test(lastChar) &&
-      curLen >= cfg.targetChars;
+    /[.!?]/.test(lastChar) && curLen >= cfg.minBreakChars;
 
-    // clause boundary
-    const clauseEnd =
-      /[,;:]/.test(lastChar) &&
-      curLen >= cfg.targetChars;
+  const clauseEnd =
+    /[,;:]/.test(lastChar) && curLen >= (cfg.minBreakChars + 25);
 
     const tooLong =
       nextLen > cfg.maxChars ||
@@ -318,6 +323,23 @@ function chunkWords(words, cfg) {
       clauseEnd ||
       tooLong
     ){
+    const sentencePreview = cur.words
+        .slice(-8)
+        .map(w => w.text)
+        .join('');
+
+      console.log('[Rechunk][split]', {
+        reason: hardPause ? 'hardPause'
+              : sentenceEnd ? 'sentenceEnd'
+              : clauseEnd ? 'clauseEnd'
+              : 'tooLong',
+        curLen,
+        nextLen,
+        gap,
+        dur,
+        preview: sentencePreview,
+        next: w.text
+      });
       flush(w.start);
       cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
     } else {
