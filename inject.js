@@ -9,7 +9,7 @@
     hardPauseMs:   8000,
     minBreakChars:  80,
     targetChars:    108,
-    maxChars:       115,
+    maxChars:       112,
     maxWords:        40,
     maxDurMs:      5200,
     minDurMs:      1800,
