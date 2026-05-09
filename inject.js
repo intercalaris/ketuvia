@@ -19,7 +19,7 @@
     navRetryForMs: 8000,
     triggerRetryMs: 900,
     maxTriggerAttempts: 8,
-  };
+  }; 
 
   const STATE = {
     enabled:    true,
