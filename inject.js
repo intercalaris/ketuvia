@@ -6,10 +6,9 @@
 
 
   const CFG = {
-    hardPauseMs:   8000,
-    minBreakChars:  80,
-    targetChars:    108,
-    maxChars:       112,
+    hardPauseMs:   5000,
+    targetLines:      2,
+    minPunctuationLastLineFill: 0.45,
     maxWords:        40,
     maxDurMs:      5200,
     minDurMs:      1800,
@@ -19,14 +18,47 @@
     navRetryForMs: 8000,
     triggerRetryMs: 900,
     maxTriggerAttempts: 8,
+    textWidthEm:     24,
+    minTextWidthPx: 360,
+    maxTextWidthPx: 720,
+    playerPaddingPx: 32,
+    fontSizeRatio: 0.0155,
+    minFontPx:      20,
+    maxFontPx:      28,
+    lineHeight:    1.4,
   };
+
+  const DEBUG = {
+    enabled: false,
+    maxChunkLogs: 80,
+  };
+
+  window.__ketuviaDebugEnabled = false;
+
+  window.addEventListener('ketuvia-debug-change', event => {
+    DEBUG.enabled = Boolean(event.detail?.enabled);
+    window.__ketuviaDebugEnabled = DEBUG.enabled;
+    if (DEBUG.enabled && STATE.words.length) {
+      rebuildChunksForLayout();
+    } else {
+      STATE.debugChunks = [];
+    }
+  });
 
   const STATE = {
     enabled:    true,
     videoId:    null,
-    asrLang:    null,   
+    asrLang:    null,
+    words:      [],
     chunks:     [],
     overlay:    null,
+    overlayText: null,
+    measurer:   null,
+    measurerText: null,
+    layout:     null,
+    resizeObserver: null,
+    resizeTimerId: null,
+    measureRange: null,
     pollId:     null,
     button:     null,
     lastText:   null,
@@ -36,19 +68,334 @@
     navRetryUntil: 0,
     triggerRetryId: null,
     triggerAttempts: 0,
+    debugChunks: [],
   };
 
-  const log = (...a) => console.log(
-    '[Rechunk]',
-    new Date().toISOString(),
-    ...a
-  );
+  const log = (...a) => {
+    if (!DEBUG.enabled) return;
+    console.log(
+      '[Rechunk]',
+      new Date().toISOString(),
+      ...a
+    );
+  };
 
-  const warn = (...a) => console.warn(
-    '[Rechunk]',
-    new Date().toISOString(),
-    ...a
-  );
+  const warn = (...a) => {
+    if (!DEBUG.enabled) return;
+    console.warn(
+      '[Rechunk]',
+      new Date().toISOString(),
+      ...a
+    );
+  };
+
+  function clamp(n, min, max) {
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function getPlayerElement() {
+    return document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
+  }
+
+  function joinWords(words) {
+    let text = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const seg = words[i].text;
+
+      if (i === 0) {
+        text = seg;
+        continue;
+      }
+
+      if (!text.endsWith(' ') && !seg.startsWith(' ')) {
+        text += ' ';
+      }
+
+      text += seg;
+    }
+
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  function getLayoutMetrics(player) {
+    const playerWidth = Math.max(0, player?.clientWidth || 0);
+    if (!playerWidth) return null;
+
+    const fontSizePx = clamp(
+      Math.round(playerWidth * CFG.fontSizeRatio * 10) / 10,
+      CFG.minFontPx,
+      CFG.maxFontPx
+    );
+
+    const maxAvailableWidth = Math.max(0, playerWidth - CFG.playerPaddingPx);
+    const targetTextWidth = Math.round(fontSizePx * CFG.textWidthEm);
+    const textWidthPx = clamp(
+      targetTextWidth,
+      Math.min(CFG.minTextWidthPx, maxAvailableWidth),
+      Math.min(CFG.maxTextWidthPx, maxAvailableWidth)
+    );
+
+    return {
+      textWidthPx,
+      fontSizePx,
+      lineHeight: CFG.lineHeight,
+      targetLines: CFG.targetLines,
+    };
+  }
+
+  function ensureMeasureRange() {
+    if (!STATE.measureRange) {
+      STATE.measureRange = document.createRange();
+    }
+    return STATE.measureRange;
+  }
+
+  function measureNodeLayout(node, containerWidthPx, targetLines) {
+    if (!node) {
+      return { lineCount: 0, lastLineFill: 0, fillRatio: 0, rects: [], rawRectCount: 0 };
+    }
+
+    const range = ensureMeasureRange();
+    range.selectNodeContents(node);
+    const rawRects = Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
+    const lines = [];
+
+    for (const rect of rawRects) {
+      let line = lines.find(existing => Math.abs(existing.top - rect.top) < 2);
+
+      if (!line) {
+        line = {
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+        };
+        lines.push(line);
+        continue;
+      }
+
+      line.top = Math.min(line.top, rect.top);
+      line.bottom = Math.max(line.bottom, rect.bottom);
+      line.left = Math.min(line.left, rect.left);
+      line.right = Math.max(line.right, rect.right);
+      line.width = line.right - line.left;
+    }
+
+    lines.sort((a, b) => a.top - b.top);
+
+    const lineCount = lines.length || (node.textContent ? 1 : 0);
+    const lastLine = lines[lines.length - 1];
+    const lastLineFill =
+      lastLine && containerWidthPx
+        ? clamp(lastLine.width / containerWidthPx, 0, 1)
+        : 0;
+    const fillRatio =
+      targetLines
+        ? clamp(((Math.max(0, lineCount - 1)) + lastLineFill) / targetLines, 0, 1)
+        : 0;
+
+    return { lineCount, lastLineFill, fillRatio, rects: lines, rawRectCount: rawRects.length };
+  }
+
+  function applyLayout(node, layout) {
+    if (!node || !layout) return;
+    node.style.setProperty('--rechunk-text-width', layout.textWidthPx + 'px');
+    node.style.setProperty('--rechunk-font-size', layout.fontSizePx + 'px');
+    node.style.setProperty('--rechunk-line-height', String(layout.lineHeight));
+    node.style.setProperty('--rechunk-target-lines', String(layout.targetLines));
+  }
+
+  function mountOverlay() {
+    if (!document.head.contains(_captionHideStyle)) document.head.appendChild(_captionHideStyle);
+
+    const player = getPlayerElement();
+    if (!player) {
+      setTimeout(mountOverlay, 250);
+      return null;
+    }
+
+    if (!STATE.overlay || !document.body.contains(STATE.overlay)) {
+      const o = document.createElement('div');
+      o.id = 'rechunk-overlay';
+      o.setAttribute('role', 'status');
+      o.setAttribute('aria-live', 'polite');
+      o.setAttribute('aria-atomic', 'true');
+      const text = document.createElement('div');
+      text.className = 'rechunk-text';
+      o.appendChild(text);
+      player.appendChild(o);
+      STATE.overlay = o;
+      STATE.overlayText = text;
+    }
+
+    if (!STATE.measurer || !document.body.contains(STATE.measurer)) {
+      const m = document.createElement('div');
+      m.id = 'rechunk-measurer';
+      const text = document.createElement('div');
+      text.className = 'rechunk-text';
+      m.appendChild(text);
+      player.appendChild(m);
+      STATE.measurer = m;
+      STATE.measurerText = text;
+    }
+
+    const layout = getLayoutMetrics(player);
+    if (layout) {
+      STATE.layout = layout;
+      applyLayout(STATE.overlay, layout);
+      applyLayout(STATE.measurer, layout);
+    }
+
+    if (!STATE.resizeObserver && typeof ResizeObserver === 'function') {
+      STATE.resizeObserver = new ResizeObserver(() => {
+        if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
+        STATE.resizeTimerId = setTimeout(() => {
+          STATE.resizeTimerId = null;
+          rebuildChunksForLayout();
+        }, 120);
+      });
+      STATE.resizeObserver.observe(player);
+    }
+
+    return player;
+  }
+
+  function measureTextLayout(text) {
+    if (!STATE.measurerText || !STATE.layout) {
+      return { lineCount: 1, lastLineFill: 1, fillRatio: 1 };
+    }
+
+    STATE.measurerText.textContent = text;
+
+    if (!text) {
+      return { lineCount: 0, lastLineFill: 0, fillRatio: 0 };
+    }
+    return measureNodeLayout(
+      STATE.measurerText,
+      STATE.layout.textWidthPx,
+      STATE.layout.targetLines
+    );
+  }
+
+  function rebuildChunksForLayout() {
+    const player = mountOverlay();
+    if (!player || !STATE.words.length) return;
+
+    const chunkResult = chunkWords(STATE.words, CFG);
+    STATE.chunks = chunkResult.chunks;
+    STATE.debugChunks = chunkResult.debugChunks;
+    log('rebuilt ' + STATE.chunks.length + ' chunks for layout width=' + STATE.layout.textWidthPx);
+    logChunkBuildSummary();
+
+    if (STATE.lastText && STATE.overlay) {
+      if (STATE.overlayText) {
+        STATE.overlayText.textContent = '';
+      }
+      STATE.overlay.dataset.empty = '1';
+      STATE.lastText = null;
+    }
+  }
+
+  function classifyBreakChar(text) {
+    const lastChar = text.trimEnd().slice(-1);
+    return {
+      terminal: /[.!?]/.test(lastChar),
+      clause: /[,;:]/.test(lastChar),
+    };
+  }
+
+  function hasEnoughTextForPunctuation(layout, cfg) {
+    if (!layout) return false;
+
+    return layout.lineCount >= Math.max(1, cfg.targetLines) &&
+      layout.lastLineFill >= cfg.minPunctuationLastLineFill;
+  }
+
+  function snapshotOverlayMetrics() {
+    if (!STATE.overlay || !STATE.overlayText || !STATE.layout) return null;
+
+    const overlayStyle = window.getComputedStyle(STATE.overlay);
+    const textStyle = window.getComputedStyle(STATE.overlayText);
+    const rendered = measureNodeLayout(
+      STATE.overlayText,
+      STATE.overlayText.clientWidth || STATE.layout.textWidthPx,
+      STATE.layout.targetLines
+    );
+
+    return {
+      cssWidth: overlayStyle.width,
+      cssFontSize: textStyle.fontSize,
+      cssLineHeight: textStyle.lineHeight,
+      innerWidthPx: STATE.overlayText.clientWidth,
+      renderedLineCount: rendered.lineCount,
+      renderedRawRectCount: rendered.rawRectCount,
+      renderedLastLineFill: Number(rendered.lastLineFill.toFixed(3)),
+      renderedFillRatio: Number(rendered.fillRatio.toFixed(3)),
+    };
+  }
+
+  function logChunkBuildSummary() {
+    if (!DEBUG.enabled || !STATE.layout) return;
+
+    console.log('[Rechunk][Debug][BUILD]', JSON.stringify({
+      playerWidthPx: getPlayerElement()?.clientWidth || 0,
+      targetLines: STATE.layout.targetLines,
+      targetTextWidthPx: STATE.layout.textWidthPx,
+      targetFontSizePx: STATE.layout.fontSizePx,
+      targetLineHeight: STATE.layout.lineHeight,
+      chunkCount: STATE.chunks.length,
+    }));
+    STATE.debugChunks.slice(0, DEBUG.maxChunkLogs).forEach(chunk => {
+      console.log('[Rechunk][Debug][CHUNK]', JSON.stringify({
+        idx: chunk.idx,
+        words: `${chunk.startWord}-${chunk.endWord}`,
+        measuredLines: chunk.measuredLineCount,
+        measuredRawRects: chunk.measuredRawRectCount,
+        measuredFill: chunk.measuredFillRatio,
+        lastLineFill: chunk.measuredLastLineFill,
+        reason: chunk.reason,
+        text: chunk.text,
+      }));
+    });
+  }
+
+  function logRenderedChunk(chunkIndex, chunk) {
+    if (!DEBUG.enabled || !chunk) return;
+
+    const meta = STATE.debugChunks[chunkIndex];
+    const rendered = snapshotOverlayMetrics();
+
+    console.log('[Rechunk][Debug][RENDER]', JSON.stringify({
+      chunkIndex,
+      startMs: chunk.startMs,
+      endMs: chunk.endMs,
+      text: chunk.text,
+      measuredLines: meta?.measuredLineCount ?? null,
+      measuredRawRects: meta?.measuredRawRectCount ?? null,
+      measuredFill: meta?.measuredFillRatio ?? null,
+      measuredLastLineFill: meta?.measuredLastLineFill ?? null,
+      reason: meta?.reason ?? null,
+      renderedLines: rendered?.renderedLineCount ?? null,
+      renderedRawRects: rendered?.renderedRawRectCount ?? null,
+      renderedFill: rendered?.renderedFillRatio ?? null,
+      renderedLastLineFill: rendered?.renderedLastLineFill ?? null,
+      cssWidth: rendered?.cssWidth ?? null,
+      cssFontSize: rendered?.cssFontSize ?? null,
+      cssLineHeight: rendered?.cssLineHeight ?? null,
+      innerWidthPx: rendered?.innerWidthPx ?? null,
+    }));
+    if (meta?.candidates?.length) {
+      meta.candidates.forEach(candidate => {
+        console.log('[Rechunk][Debug][CANDIDATE]', JSON.stringify({
+          chunkIndex,
+          ...candidate,
+        }));
+      });
+    }
+  }
+
   function onTimedtextBody(url, text) {
     if (!text || text.length === 0) return;
     let vid;
@@ -146,10 +493,14 @@
       warn('zero words extracted. events=' + (data.events || []).length);
       setStatus('error'); return;
     }
-    STATE.chunks = chunkWords(words, CFG);
-    log('built ' + STATE.chunks.length + ' chunks from ' + words.length + ' words');
-    setStatus('active');
+    STATE.words = words;
     mountOverlay();
+    const chunkResult = chunkWords(words, CFG);
+    STATE.chunks = chunkResult.chunks;
+    STATE.debugChunks = chunkResult.debugChunks;
+    log('built ' + STATE.chunks.length + ' chunks from ' + words.length + ' words');
+    logChunkBuildSummary();
+    setStatus('active');
     startPolling();
   }
 
@@ -356,142 +707,186 @@
 
 function chunkWords(words, cfg) {
   const chunks = [];
-  let cur = null;
+    const debugChunks = [];
+    const shouldDebug = DEBUG.enabled;
+  if (!words.length) return { chunks, debugChunks };
 
-  const flush = (nextStart) => {
-    if (!cur) return;
+  const pushChunk = (startIndex, endIndexExclusive, meta) => {
+    if (endIndexExclusive <= startIndex) return;
 
-    let text = '';
+    const slice = words.slice(startIndex, endIndexExclusive);
+    const text = joinWords(slice);
+    if (!text) return;
 
-    for (let i = 0; i < cur.words.length; i++) {
-      const seg = cur.words[i].text;
+    const startMs = slice[0].start;
+    const lastWordStart = slice[slice.length - 1].start;
+    const nextStart = words[endIndexExclusive]?.start;
 
-      if (i === 0) {
-        text = seg;
-        continue;
-      }
+    let endMs =
+      nextStart != null
+        ? nextStart
+        : (lastWordStart + cfg.minDurMs);
 
-      if (!text.endsWith(' ') && !seg.startsWith(' ')) {
-        text += ' ';
-      }
-
-      text += seg;
+    if (endMs - startMs < cfg.minDurMs) {
+      endMs = startMs + cfg.minDurMs;
     }
 
-    text = text.replace(/\s+/g, ' ').trim();
+    if (endMs - startMs > cfg.maxDurMs) {
+      endMs = startMs + cfg.maxDurMs;
+    }
 
-    if (text) {
-      const lastWordStart =
-        cur.words[cur.words.length - 1].start;
-
-      let end =
-        nextStart != null
-          ? nextStart
-          : (lastWordStart + cfg.minDurMs);
-
-      if (end - cur.start < cfg.minDurMs) {
-        end = cur.start + cfg.minDurMs;
-      }
-
-      if (end - cur.start > cfg.maxDurMs) {
-        end = cur.start + cfg.maxDurMs;
-      }
-
-      chunks.push({
-        startMs: cur.start,
-        endMs: end,
+    chunks.push({ startMs, endMs, text });
+    if (shouldDebug) {
+      debugChunks.push({
+        idx: chunks.length - 1,
+        startWord: startIndex,
+        endWord: endIndexExclusive - 1,
+        measuredLineCount: meta.layout.lineCount,
+        measuredRawRectCount: meta.layout.rawRectCount,
+        measuredFillRatio: Number(meta.layout.fillRatio.toFixed(3)),
+        measuredLastLineFill: Number(meta.layout.lastLineFill.toFixed(3)),
+        reason: meta.reason,
+        candidates: meta.candidates,
         text,
       });
     }
-
-    cur = null;
   };
 
-  for (const w of words) {
-    if (!cur) {
-      cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
-      continue;
+  let start = 0;
+
+  while (start < words.length) {
+    let chosenEnd = -1;
+    let chosenLayout = null;
+    let reason = 'unknown';
+    let firstGoodPunctuationEnd = -1;
+    let firstGoodPunctuationLayout = null;
+    let lastFitEnd = start + 1;
+    let lastFitLayout = null;
+    const candidateDebug = [];
+
+    for (let end = start + 1; end <= words.length; end++) {
+      const slice = words.slice(start, end);
+      const text = joinWords(slice);
+      const layout = measureTextLayout(text);
+      const currentWord = slice[slice.length - 1];
+      const nextWord = words[end];
+      const gapAfterMs = nextWord ? nextWord.start - currentWord.start : 0;
+      const durationMs = currentWord.start - slice[0].start;
+      const breaks = classifyBreakChar(currentWord.text);
+
+      if (layout.lineCount > cfg.targetLines) {
+        reason =
+          firstGoodPunctuationEnd > start
+            ? 'punctuation_after_min_fill_before_overflow'
+            : 'last_word_that_fits_before_overflow';
+        chosenEnd =
+          firstGoodPunctuationEnd > start
+            ? firstGoodPunctuationEnd
+            : lastFitEnd;
+        chosenLayout =
+          firstGoodPunctuationLayout || lastFitLayout;
+        if (shouldDebug) {
+          candidateDebug.push({
+            endWord: end - 1,
+            lines: layout.lineCount,
+            rawRects: layout.rawRectCount,
+            fill: Number(layout.fillRatio.toFixed(3)),
+            lastLineFill: Number(layout.lastLineFill.toFixed(3)),
+            overflow: true,
+            pauseAfter: gapAfterMs >= cfg.hardPauseMs,
+            durationMs,
+            terminal: breaks.terminal,
+            clause: breaks.clause,
+            text,
+          });
+        }
+        break;
+      }
+
+      lastFitEnd = end;
+      lastFitLayout = layout;
+
+      if (shouldDebug) {
+        candidateDebug.push({
+          endWord: end - 1,
+          lines: layout.lineCount,
+          rawRects: layout.rawRectCount,
+          fill: Number(layout.fillRatio.toFixed(3)),
+          lastLineFill: Number(layout.lastLineFill.toFixed(3)),
+          overflow: false,
+          pauseAfter: gapAfterMs >= cfg.hardPauseMs,
+          durationMs,
+          terminal: breaks.terminal,
+          clause: breaks.clause,
+          text,
+        });
+      }
+
+      const hasPunctuation = breaks.terminal || breaks.clause;
+      const hasMinimumFill = hasEnoughTextForPunctuation(layout, cfg);
+
+      if (hasPunctuation && hasMinimumFill) {
+        firstGoodPunctuationEnd = end;
+        firstGoodPunctuationLayout = layout;
+        reason = 'punctuation_after_min_fill';
+        chosenEnd = end;
+        chosenLayout = layout;
+        break;
+      }
+
+      if (gapAfterMs >= cfg.hardPauseMs) {
+        reason =
+          hasMinimumFill
+            ? 'hard_pause_after_min_fill'
+            : 'hard_pause_before_min_fill';
+        chosenEnd = end;
+        chosenLayout = layout;
+        break;
+      }
+
+      if (end - start >= cfg.maxWords) {
+        reason =
+          firstGoodPunctuationEnd > start
+            ? 'punctuation_after_min_fill_before_max_words'
+            : 'max_words_last_fit';
+        chosenEnd =
+          firstGoodPunctuationEnd > start
+            ? firstGoodPunctuationEnd
+            : end;
+        chosenLayout =
+          firstGoodPunctuationLayout || layout;
+        break;
+      }
     }
 
-    const prev =
-      cur.words[cur.words.length - 1];
-
-    const gap =
-      w.start - prev.start;
-
-    // curLen/nextLen tracked incrementally — no array rebuild per word.
-    const curLen  = cur.charLen;
-    const nextLen = curLen + (curLen > 0 && !prev.text.endsWith(' ') && !w.text.startsWith(' ') ? 1 : 0) + w.text.length;
-    const dur     = w.start - cur.start;
-
-    const lastChar    = prev.text.trimEnd().slice(-1);
-    const hardPause   = gap >= cfg.hardPauseMs;
-
-    // sentence boundary
-    const sentenceEnd =
-    /[.!?]/.test(lastChar) && curLen >= cfg.minBreakChars;
-
-  const clauseEnd =
-    /[,;:]/.test(lastChar) && curLen >= (cfg.minBreakChars + 25);
-
-    const tooLong =
-      nextLen > cfg.maxChars ||
-      (curLen >= cfg.targetChars && dur > cfg.maxDurMs);
-    if (
-      hardPause ||
-      sentenceEnd ||
-      clauseEnd ||
-      tooLong
-    ){
-    const sentencePreview = cur.words
-        .slice(-8)
-        .map(w => w.text)
-        .join('');
-
-      // console.log('[Rechunk][split]', {
-      //   reason: hardPause ? 'hardPause'
-      //         : sentenceEnd ? 'sentenceEnd'
-      //         : clauseEnd ? 'clauseEnd'
-      //         : 'tooLong',
-      //   curLen,
-      //   nextLen,
-      //   gap,
-      //   dur,
-      //   preview: sentencePreview,
-      //   next: w.text
-      // });
-      flush(w.start);
-      cur = { words: [w], start: w.start, charLen: w.text.length, wordCount: 1 };
-    } else {
-      const needsSpace = !prev.text.endsWith(' ') && !w.text.startsWith(' ');
-      cur.charLen += (needsSpace ? 1 : 0) + w.text.length;
-      cur.wordCount += 1;
-      cur.words.push(w);
+    if (chosenEnd <= start) {
+      chosenEnd = lastFitEnd;
+      chosenLayout = lastFitLayout;
+      reason =
+        lastFitLayout && !hasEnoughTextForPunctuation(lastFitLayout, cfg)
+          ? 'end_of_captions_before_min_fill'
+          : 'end_of_captions_last_fit';
     }
+
+    if (chosenEnd <= start) {
+      chosenEnd = Math.min(start + 1, words.length);
+      chosenLayout = measureTextLayout(joinWords(words.slice(start, chosenEnd)));
+      reason = 'forced_single_word';
+    }
+
+    pushChunk(start, chosenEnd, {
+      layout: chosenLayout || { lineCount: 0, fillRatio: 0, lastLineFill: 0 },
+      reason,
+      candidates: candidateDebug,
+    });
+    start = chosenEnd;
   }
 
-  flush();
-
-  return chunks;
+  return { chunks, debugChunks };
 }
 
   const _captionHideStyle = document.createElement('style');
   _captionHideStyle.textContent = '.ytp-caption-window-container{visibility:hidden!important}';
-
-  function mountOverlay() {
-    if (!document.head.contains(_captionHideStyle)) document.head.appendChild(_captionHideStyle);
-
-    if (STATE.overlay && document.body.contains(STATE.overlay)) return;
-    const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
-    if (!player) { setTimeout(mountOverlay, 250); return; }
-    const o = document.createElement('div');
-    o.id = 'rechunk-overlay';
-    o.setAttribute('role', 'status');
-    o.setAttribute('aria-live', 'polite');
-    o.setAttribute('aria-atomic', 'true');
-    player.appendChild(o);
-    STATE.overlay = o;
-  }
 
   function startPolling() {
     if (STATE.pollId) return;
@@ -501,17 +896,27 @@ function chunkWords(words, cfg) {
       if (!video) return;
       const ms = (video.currentTime || 0) * 1000 + CFG.lookaheadMs;
       let active = '';
+      let activeIndex = -1;
       const N = STATE.chunks.length;
       for (let i = 0; i < N; i++) {
         const c = STATE.chunks[i];
         const next = STATE.chunks[i + 1];
         const winEnd = next ? next.startMs : c.endMs;
-        if (ms >= c.startMs && ms < winEnd) { active = c.text; break; }
+        if (ms >= c.startMs && ms < winEnd) {
+          active = c.text;
+          activeIndex = i;
+          break;
+        }
         if (ms < c.startMs) break;
       }
       if (active !== STATE.lastText) {
-        STATE.overlay.textContent = active;
+        if (STATE.overlayText) {
+          STATE.overlayText.textContent = active;
+        }
         STATE.overlay.dataset.empty = active ? '0' : '1';
+        if (active && activeIndex >= 0) {
+          logRenderedChunk(activeIndex, STATE.chunks[activeIndex]);
+        }
         STATE.lastText = active;
       }
     };
@@ -519,12 +924,12 @@ function chunkWords(words, cfg) {
   }
 
   function flashOverlay(msg) {
-    if (!STATE.overlay) return;
-    STATE.overlay.textContent = msg;
+    if (!STATE.overlay || !STATE.overlayText) return;
+    STATE.overlayText.textContent = msg;
     STATE.overlay.dataset.empty = '0';
     setTimeout(() => {
-      if (STATE.overlay && STATE.overlay.textContent === msg) {
-        STATE.overlay.textContent = '';
+      if (STATE.overlay && STATE.overlayText && STATE.overlayText.textContent === msg) {
+        STATE.overlayText.textContent = '';
         STATE.overlay.dataset.empty = '1';
       }
     }, 4000);
@@ -534,10 +939,21 @@ function chunkWords(words, cfg) {
     if (STATE.pollId) clearInterval(STATE.pollId);
     clearNavRetry();
     clearTriggerRetry();
+    if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
+    if (STATE.resizeObserver) STATE.resizeObserver.disconnect();
     if (STATE.overlay && STATE.overlay.parentNode) STATE.overlay.parentNode.removeChild(STATE.overlay);
+    if (STATE.measurer && STATE.measurer.parentNode) STATE.measurer.parentNode.removeChild(STATE.measurer);
     if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
     STATE.pollId     = null;
     STATE.overlay    = null;
+    STATE.overlayText = null;
+    STATE.measurer   = null;
+    STATE.measurerText = null;
+    STATE.layout     = null;
+    STATE.resizeObserver = null;
+    STATE.resizeTimerId = null;
+    STATE.measureRange = null;
+    STATE.words      = [];
     STATE.chunks     = [];
     STATE.asrLang    = null;
     STATE.videoId    = null;
@@ -572,7 +988,12 @@ function chunkWords(words, cfg) {
         else if (STATE.asrLang && !STATE.triggered) waitForPlayerThenTrigger();
       } else {
         if (STATE.pollId) { clearInterval(STATE.pollId); STATE.pollId = null; }
-        if (STATE.overlay) { STATE.overlay.textContent = ''; STATE.overlay.dataset.empty = '1'; }
+        if (STATE.overlay) {
+          if (STATE.overlayText) {
+            STATE.overlayText.textContent = '';
+          }
+          STATE.overlay.dataset.empty = '1';
+        }
         if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
       }
       updateButton();

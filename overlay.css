@@ -13,13 +13,18 @@
 }
 
 #rechunk-overlay {
+  --rechunk-text-width: 820px;
+  --rechunk-font-size: 24px;
+  --rechunk-line-height: 1.4;
+  --rechunk-target-lines: 2;
+
   position: absolute;
   left: 50%;
   bottom: 9%;
   transform: translateX(-50%);
-  max-width: 82%;
+  width: min(var(--rechunk-text-width), calc(100% - 32px));
   min-width: 0;
-  min-height: 2.8em;
+  min-height: calc(var(--rechunk-font-size) * var(--rechunk-line-height) * var(--rechunk-target-lines));
   padding: 2px 8px;
   z-index: 60;
   pointer-events: none;
@@ -28,8 +33,8 @@
     "Atkinson Hyperlegible",
     sans-serif !important;
 
-  font-size: clamp(20px, 2vw, 28px);
-  line-height: 1.4;
+  font-size: var(--rechunk-font-size);
+  line-height: var(--rechunk-line-height);
   font-weight: 400;
   letter-spacing: 0.01em;
 
@@ -48,6 +53,42 @@
 
   transition: opacity 80ms linear;
   opacity: 1;
+
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#rechunk-overlay .rechunk-text,
+#rechunk-measurer .rechunk-text {
+  width: 100%;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  text-align: center;
+}
+
+#rechunk-measurer {
+  position: absolute;
+  left: 50%;
+  bottom: 9%;
+  transform: translateX(-50%);
+  width: min(var(--rechunk-text-width), calc(100% - 32px));
+  min-width: 0;
+  padding: 2px 8px;
+  z-index: -1;
+  pointer-events: none;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-family:
+    "Atkinson Hyperlegible",
+    sans-serif !important;
+
+  font-size: var(--rechunk-font-size);
+  line-height: var(--rechunk-line-height);
+  font-weight: 400;
+  letter-spacing: 0.01em;
 
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

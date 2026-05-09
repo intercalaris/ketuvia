@@ -1,0 +1,58 @@
+body {
+  margin: 0;
+  width: 142px;
+  color: #e8e6dc;
+  background: #20211d;
+  font: 12px/1.2 system-ui, sans-serif;
+}
+
+.debug-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.debug-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch {
+  position: relative;
+  width: 30px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #575850;
+  transition: background 120ms ease;
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d8d6ca;
+  transition: transform 120ms ease;
+}
+
+input:checked + .switch {
+  background: #6fb58d;
+}
+
+input:checked + .switch::before {
+  transform: translateX(14px);
+}
+
+input:focus-visible + .switch {
+  outline: 1px solid #d8d6ca;
+  outline-offset: 2px;
+}

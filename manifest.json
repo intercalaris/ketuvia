@@ -3,6 +3,18 @@
   "name": "Ketuvia: accessible captions",
   "version": "1.8.5",
   "description": "Replaces YouTube's word-by-word auto-captions with phrase-based captions for better readability and accessibility.",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://www.youtube.com/*",
+    "*://m.youtube.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ketuvia"
+  },
   "content_scripts": [
     {
       "matches": [
