@@ -1,0 +1,134 @@
+name: Publish To Chrome Web Store
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    env:
+      EXTENSION_ID: aojjnbkipebndcbnojlliplfbhnpidhk
+      MANIFEST_PATH: manifest.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect manifest version change
+        id: version_check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_version="$(python3 - <<'PY'
+          import json
+          with open("manifest.json", "r", encoding="utf-8") as f:
+              print(json.load(f)["version"])
+          PY
+          )"
+
+          before_sha="${{ github.event.before }}"
+          previous_version=""
+
+          if [ "$before_sha" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${before_sha}:${MANIFEST_PATH}" 2>/dev/null; then
+            previous_version="$(git show "${before_sha}:${MANIFEST_PATH}" | python3 - <<'PY'
+          import json, sys
+          print(json.load(sys.stdin)["version"])
+          PY
+            )"
+          fi
+
+          echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
+          echo "previous_version=$previous_version" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$previous_version" ] && [ "$previous_version" = "$current_version" ]; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "Manifest version unchanged at $current_version"
+            exit 0
+          fi
+
+          echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          echo "Manifest version changed from '${previous_version:-<none>}' to '$current_version'"
+
+      - name: Stop when version is unchanged
+        if: steps.version_check.outputs.should_publish != 'true'
+        run: echo "Skipping Chrome Web Store publish because manifest version did not change."
+
+      - name: Create release zip
+        if: steps.version_check.outputs.should_publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          zip -r "dist/ketuvia-${{ steps.version_check.outputs.current_version }}.zip" \
+            manifest.json \
+            inject.js \
+            overlay.css \
+            fonts
+
+      - name: Refresh Chrome Web Store access token
+        if: steps.version_check.outputs.should_publish == 'true'
+        id: token
+        shell: bash
+        env:
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          response="$(curl -sS https://oauth2.googleapis.com/token \
+            -d "client_id=$CLIENT_ID" \
+            -d "client_secret=$CLIENT_SECRET" \
+            -d "refresh_token=$REFRESH_TOKEN" \
+            -d "grant_type=refresh_token")"
+
+          access_token="$(python3 - <<'PY' "$response"
+          import json, sys
+          data = json.loads(sys.argv[1])
+          if "access_token" not in data:
+              raise SystemExit(json.dumps(data))
+          print(data["access_token"])
+          PY
+          )"
+
+          echo "::add-mask::$access_token"
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package
+        if: steps.version_check.outputs.should_publish == 'true'
+        shell: bash
+        env:
+          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          VERSION: ${{ steps.version_check.outputs.current_version }}
+        run: |
+          set -euo pipefail
+
+          curl -sS --fail-with-body \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -X POST \
+            -T "dist/ketuvia-$VERSION.zip" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID:upload"
+
+      - name: Publish submission
+        if: steps.version_check.outputs.should_publish == 'true'
+        shell: bash
+        env:
+          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          set -euo pipefail
+
+          curl -sS --fail-with-body \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID:publish"
