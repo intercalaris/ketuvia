@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ketuvia: accessible captions",
-  "version": "1.8.3",
+  "version": "1.8.4",
   "description": "Replaces YouTube's word-by-word auto-captions with phrase-based captions for better readability and accessibility.",
   "content_scripts": [
     {

@@ -39,11 +39,7 @@ jobs:
           previous_version=""
 
           if [ "$before_sha" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${before_sha}:${MANIFEST_PATH}" 2>/dev/null; then
-            previous_version="$(git show "${before_sha}:${MANIFEST_PATH}" | python3 - <<'PY'
-          import json, sys
-          print(json.load(sys.stdin)["version"])
-          PY
-            )"
+            previous_version="$(git show "${before_sha}:${MANIFEST_PATH}" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')"
           fi
 
           echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
