@@ -59,7 +59,7 @@ def build_firefox():
         'gecko': {
             'id': FIREFOX_ADDON_ID,
             'strict_min_version': FIREFOX_MIN_VER,
-            'data_collection_permissions': {'required': [], 'optional': []},
+            'data_collection_permissions': {'optional': []},
         },
     }
     mf_path.write_text(json.dumps(mf, indent=2), encoding='utf-8')
