@@ -13,7 +13,7 @@ SOURCE_FILES = ['manifest.json', 'inject.js', 'overlay.css', 'popup.html', 'popu
 SOURCE_DIRS  = ['icons', 'fonts']
 
 FIREFOX_ADDON_ID = 'ketuvia@intercalaris'
-FIREFOX_MIN_VER  = '128.0'
+FIREFOX_MIN_VER  = '140.0'
 
 
 def copy_sources(dest: Path):
