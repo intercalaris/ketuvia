@@ -68,6 +68,10 @@ jobs:
             manifest.json \
             inject.js \
             overlay.css \
+            popup.html \
+            popup.css \
+            popup.js \
+            icons \
             fonts
 
       - name: Refresh Chrome Web Store access token

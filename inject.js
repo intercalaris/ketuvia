@@ -48,11 +48,12 @@
     dark: 0.8,
   };
   const FONT_FAMILIES = {
-    atkinson: '"Atkinson Hyperlegible"',
-    lexend: '"Lexend"',
-    noto: '"Noto Sans"',
-    average: '"Average Sans"',
-    roboto: '"Roboto Condensed"',
+    atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
+    opensans: '"Open Sans", system-ui, sans-serif',
+    noto: '"Noto Sans", system-ui, sans-serif',
+    average: '"Average Sans", system-ui, sans-serif',
+    roboto: '"Roboto", system-ui, sans-serif',
+    rubik: '"Rubik", system-ui, sans-serif',
   };
   const OVERLAY_POSITIONS = {
     'left-top': { x: 'left', y: '8%' },

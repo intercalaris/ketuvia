@@ -5,8 +5,8 @@
 }
 
 @font-face {
-  font-family: "Lexend";
-  src: url("fonts/Lexend/regular.woff2") format("woff2");
+  font-family: "Open Sans";
+  src: url("fonts/Open_Sans/regular.woff2") format("woff2");
   font-weight: 400;
 }
 
@@ -23,8 +23,14 @@
 }
 
 @font-face {
-  font-family: "Roboto Condensed";
-  src: url("fonts/Roboto_Condensed/regular.woff2") format("woff2");
+  font-family: "Roboto";
+  src: url("fonts/Roboto/regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Rubik";
+  src: url("fonts/Rubik/regular.woff2") format("woff2");
   font-weight: 400;
 }
 

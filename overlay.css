@@ -13,15 +13,15 @@
 }
 
 @font-face {
-  font-family: "Lexend";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Lexend/regular.woff2") format("woff2");
+  font-family: "Open Sans";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Open_Sans/regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Lexend";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Lexend/bold.woff2") format("woff2");
+  font-family: "Open Sans";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Open_Sans/bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
 }
@@ -48,15 +48,29 @@
 }
 
 @font-face {
-  font-family: "Roboto Condensed";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto_Condensed/regular.woff2") format("woff2");
+  font-family: "Roboto";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto/regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Roboto Condensed";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto_Condensed/bold.woff2") format("woff2");
+  font-family: "Roboto";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto/bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Rubik";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Rubik/regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Rubik";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Rubik/bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
 }
