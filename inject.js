@@ -340,6 +340,10 @@
       '--rechunk-font-family',
       FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson
     );
+    const y = Number.parseFloat(position.y);
+    const anchorTop = y <= 8;
+    const anchorBottom = y >= 94;
+
     node.style.top = position.y;
     node.style.bottom = 'auto';
     node.style.left = '';
@@ -347,17 +351,29 @@
 
     if (position.x === 'left') {
       node.style.left = '8px';
-      node.style.transform = 'translateY(-50%)';
       node.style.textAlign = 'left';
     } else if (position.x === 'right') {
       node.style.right = '8px';
-      node.style.transform = 'translateY(-50%)';
       node.style.textAlign = 'right';
     } else {
       node.style.left = '50%';
-      node.style.transform = 'translate(-50%, -50%)';
       node.style.textAlign = 'center';
     }
+
+    if (anchorTop) {
+      node.style.top = '8px';
+      node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+      return;
+    }
+
+    if (anchorBottom) {
+      node.style.top = 'auto';
+      node.style.bottom = '8px';
+      node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+      return;
+    }
+
+    node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
   }
 
   function mountOverlay() {
@@ -415,14 +431,19 @@
     return player;
   }
 
+  function getDisplayText(text) {
+    return applyTextCase(text);
+  }
+
   function measureTextLayout(text) {
     if (!STATE.measurerText || !STATE.layout) {
       return { lineCount: 1, lastLineFill: 1, fillRatio: 1 };
     }
 
-    STATE.measurerText.textContent = text;
+    const displayText = getDisplayText(text);
+    STATE.measurerText.textContent = displayText;
 
-    if (!text) {
+    if (!displayText) {
       return { lineCount: 0, lastLineFill: 0, fillRatio: 0 };
     }
     return measureNodeLayout(
@@ -888,7 +909,8 @@ function chunkWords(words, cfg) {
       endMs = startMs + cfg.maxDurMs;
     }
 
-    chunks.push({ startMs, endMs, text });
+    const displayText = getDisplayText(text);
+    chunks.push({ startMs, endMs, text: displayText });
     if (shouldDebug) {
       debugChunks.push({
         idx: chunks.length - 1,
@@ -900,7 +922,7 @@ function chunkWords(words, cfg) {
         measuredLastLineFill: Number(meta.layout.lastLineFill.toFixed(3)),
         reason: meta.reason,
         candidates: meta.candidates,
-        text,
+        text: displayText,
       });
     }
   };
@@ -1066,7 +1088,7 @@ function chunkWords(words, cfg) {
     if (!force && active === STATE.lastText) return;
 
     if (STATE.overlayText) {
-      STATE.overlayText.textContent = applyTextCase(active);
+      STATE.overlayText.textContent = active;
     }
     STATE.overlay.dataset.empty = active ? '0' : '1';
     if (active && activeIndex >= 0) {
