@@ -1,4 +1,4 @@
-name: Publish To Chrome Web Store
+name: Publish Extension
 
 on:
   push:
@@ -9,16 +9,15 @@ permissions:
   contents: read
 
 jobs:
-  publish:
+  # ── Detect version change and build both packages ──────────────────────────
+  detect:
     runs-on: ubuntu-latest
-
-    env:
-      EXTENSION_ID: aojjnbkipebndcbnojlliplfbhnpidhk
-      MANIFEST_PATH: manifest.json
+    outputs:
+      should_publish: ${{ steps.version_check.outputs.should_publish }}
+      current_version: ${{ steps.version_check.outputs.current_version }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -38,8 +37,8 @@ jobs:
           before_sha="${{ github.event.before }}"
           previous_version=""
 
-          if [ "$before_sha" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${before_sha}:${MANIFEST_PATH}" 2>/dev/null; then
-            previous_version="$(git show "${before_sha}:${MANIFEST_PATH}" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')"
+          if [ "$before_sha" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${before_sha}:manifest.json" 2>/dev/null; then
+            previous_version="$(git show "${before_sha}:manifest.json" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')"
           fi
 
           echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
@@ -54,28 +53,34 @@ jobs:
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
           echo "Manifest version changed from '${previous_version:-<none>}' to '$current_version'"
 
-      - name: Stop when version is unchanged
-        if: steps.version_check.outputs.should_publish != 'true'
-        run: echo "Skipping Chrome Web Store publish because manifest version did not change."
-
-      - name: Create release zip
+      - name: Build packages
         if: steps.version_check.outputs.should_publish == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          zip -r "dist/ketuvia-${{ steps.version_check.outputs.current_version }}.zip" \
-            manifest.json \
-            inject.js \
-            overlay.css \
-            popup.html \
-            popup.css \
-            popup.js \
-            icons \
-            fonts
+        run: python3 build.py
+
+      - name: Upload build artifacts
+        if: steps.version_check.outputs.should_publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/
+            amo-metadata.json
+
+  # ── Chrome Web Store (fails independently if item is in review) ────────────
+  publish-chrome:
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      CHROME_EXTENSION_ID: aojjnbkipebndcbnojlliplfbhnpidhk
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
 
       - name: Refresh Chrome Web Store access token
-        if: steps.version_check.outputs.should_publish == 'true'
         id: token
         shell: bash
         env:
@@ -103,24 +108,22 @@ jobs:
           echo "::add-mask::$access_token"
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
-      - name: Upload package
-        if: steps.version_check.outputs.should_publish == 'true'
+      - name: Upload to Chrome Web Store
         shell: bash
         env:
           ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
           PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
-          VERSION: ${{ steps.version_check.outputs.current_version }}
+          VERSION: ${{ needs.detect.outputs.current_version }}
         run: |
           set -euo pipefail
 
           curl -sS --fail-with-body \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -X POST \
-            -T "dist/ketuvia-$VERSION.zip" \
-            "https://chromewebstore.googleapis.com/upload/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID:upload"
+            -T "dist/ketuvia-chrome-$VERSION.zip" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:upload"
 
-      - name: Publish submission
-        if: steps.version_check.outputs.should_publish == 'true'
+      - name: Publish Chrome submission
         shell: bash
         env:
           ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
@@ -131,4 +134,34 @@ jobs:
           curl -sS --fail-with-body \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -X POST \
-            "https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$EXTENSION_ID:publish"
+            "https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:publish"
+
+  # ── Firefox Add-ons / AMO (runs independently of Chrome) ──────────────────
+  publish-firefox:
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publish to Firefox Add-ons (AMO)
+        shell: bash
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          npx --yes web-ext@8 sign \
+            --source-dir=dist/firefox \
+            --channel=listed \
+            --api-key="$AMO_JWT_ISSUER" \
+            --api-secret="$AMO_JWT_SECRET" \
+            --amo-metadata=amo-metadata.json \
+            --timeout=120000
