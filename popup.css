@@ -216,3 +216,16 @@ input:focus-visible + .switch {
   outline: 1px solid #d8d6ca;
   outline-offset: 2px;
 }
+
+#donate {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: #575850;
+  text-decoration: none;
+}
+
+#donate:hover {
+  color: #c9c7bc;
+}
