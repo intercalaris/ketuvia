@@ -6,11 +6,69 @@
     <title>Ketuvia</title>
   </head>
   <body>
-    <label class="debug-row">
-      <span>Debug mode</span>
-      <input id="debug-toggle" type="checkbox">
-      <span class="switch" aria-hidden="true"></span>
-    </label>
+    <main>
+      <section class="setting">
+        <span>Size</span>
+        <div class="segments" data-setting="textSize">
+          <button type="button" data-value="small">S</button>
+          <button type="button" data-value="medium">M</button>
+          <button type="button" data-value="large">L</button>
+        </div>
+      </section>
+
+      <section class="setting">
+        <span>Lines</span>
+        <div class="segments" data-setting="targetLines">
+          <button type="button" data-value="1">1</button>
+          <button type="button" data-value="2">2</button>
+          <button type="button" data-value="3">3</button>
+        </div>
+      </section>
+
+      <section class="setting">
+        <span>Shade</span>
+        <div class="segments wide" data-setting="background">
+          <button type="button" data-value="light">Light</button>
+          <button type="button" data-value="medium">Med</button>
+          <button type="button" data-value="dark">Dark</button>
+        </div>
+      </section>
+
+      <section class="position-setting">
+        <span>Position</span>
+        <div class="position-grid" data-setting="position" aria-label="Caption position">
+          <button type="button" data-value="left-top" title="Left top" aria-label="Left top"></button>
+          <button type="button" data-value="center-top" title="Center top" aria-label="Center top"></button>
+          <button type="button" data-value="right-top" title="Right top" aria-label="Right top"></button>
+          <button type="button" data-value="left-high" title="Left high" aria-label="Left high"></button>
+          <button type="button" data-value="center-high" title="Center high" aria-label="Center high"></button>
+          <button type="button" data-value="right-high" title="Right high" aria-label="Right high"></button>
+          <button type="button" data-value="left-highish" title="Left highish" aria-label="Left highish"></button>
+          <button type="button" data-value="center-highish" title="Center highish" aria-label="Center highish"></button>
+          <button type="button" data-value="right-highish" title="Right highish" aria-label="Right highish"></button>
+          <button type="button" data-value="left-middle" title="Left middle" aria-label="Left middle"></button>
+          <button type="button" data-value="center-middle" title="Center middle" aria-label="Center middle"></button>
+          <button type="button" data-value="right-middle" title="Right middle" aria-label="Right middle"></button>
+          <button type="button" data-value="left-lowish" title="Left lowish" aria-label="Left lowish"></button>
+          <button type="button" data-value="center-lowish" title="Center lowish" aria-label="Center lowish"></button>
+          <button type="button" data-value="right-lowish" title="Right lowish" aria-label="Right lowish"></button>
+          <button type="button" data-value="left-low" title="Left low" aria-label="Left low"></button>
+          <button type="button" data-value="center-low" title="Center low" aria-label="Center low"></button>
+          <button type="button" data-value="right-low" title="Right low" aria-label="Right low"></button>
+          <button type="button" data-value="left-bottom" title="Left bottom" aria-label="Left bottom"></button>
+          <button type="button" data-value="center-bottom" title="Center bottom" aria-label="Center bottom"></button>
+          <button type="button" data-value="right-bottom" title="Right bottom" aria-label="Right bottom"></button>
+        </div>
+      </section>
+
+      <button id="reset" type="button">Reset</button>
+
+      <label class="debug-row">
+        <span>Debug mode</span>
+        <input id="debug-toggle" type="checkbox">
+        <span class="switch" aria-hidden="true"></span>
+      </label>
+    </main>
 
     <script src="popup.js"></script>
   </body>

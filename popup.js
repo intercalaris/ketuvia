@@ -1,15 +1,51 @@
+const DEFAULT_SETTINGS = {
+  textSize: 'medium',
+  targetLines: 2,
+  background: 'medium',
+  position: 'center-low',
+};
+
 const toggle = document.getElementById('debug-toggle');
+const reset = document.getElementById('reset');
+
+function normalizeSettings(settings) {
+  const textSize = ['small', 'medium', 'large'].includes(settings?.textSize)
+    ? settings.textSize
+    : DEFAULT_SETTINGS.textSize;
+  const targetLines = [1, 2, 3].includes(Number(settings?.targetLines))
+    ? Number(settings.targetLines)
+    : DEFAULT_SETTINGS.targetLines;
+  const background = ['light', 'medium', 'dark'].includes(settings?.background)
+    ? settings.background
+    : DEFAULT_SETTINGS.background;
+  const position = [
+    'left-top', 'center-top', 'right-top',
+    'left-high', 'center-high', 'right-high',
+    'left-highish', 'center-highish', 'right-highish',
+    'left-middle', 'center-middle', 'right-middle',
+    'left-lowish', 'center-lowish', 'right-lowish',
+    'left-low', 'center-low', 'right-low',
+    'left-bottom', 'center-bottom', 'right-bottom',
+  ].includes(settings?.position)
+    ? settings.position
+    : DEFAULT_SETTINGS.position;
+
+  return { textSize, targetLines, background, position };
+}
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
-async function runInTab(tabId, enabled) {
+async function runInTab(payload = {}) {
+  const tab = await getActiveTab();
+  if (!tab?.id) return null;
+
   const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId: tab.id },
     world: 'MAIN',
-    func: nextEnabled => {
+    func: nextPayload => {
       const host = window.location.hostname;
       const isYouTube = host === 'youtube.com' ||
         host === 'www.youtube.com' ||
@@ -17,43 +53,112 @@ async function runInTab(tabId, enabled) {
 
       if (!isYouTube) return null;
 
-      if (typeof nextEnabled === 'boolean') {
-        window.__ketuviaDebugEnabled = nextEnabled;
+      if (nextPayload.settings) {
+        if (typeof window.__ketuviaApplySettings === 'function') {
+          window.__ketuviaApplySettings(nextPayload.settings);
+        } else {
+          window.dispatchEvent(new CustomEvent('ketuvia-settings-change', {
+            detail: nextPayload.settings,
+          }));
+        }
+      }
+
+      if (typeof nextPayload.debug === 'boolean') {
+        window.__ketuviaDebugEnabled = nextPayload.debug;
         window.dispatchEvent(new CustomEvent('ketuvia-debug-change', {
-          detail: { enabled: nextEnabled },
+          detail: { enabled: nextPayload.debug },
         }));
       }
 
-      return Boolean(window.__ketuviaDebugEnabled);
+      return {
+        debug: Boolean(window.__ketuviaDebugEnabled),
+        settings: window.__ketuviaSettings || null,
+      };
     },
-    args: [enabled],
+    args: [payload],
   });
 
   return result;
 }
 
-async function syncFromTab() {
-  const tab = await getActiveTab();
-  if (!tab?.id) return;
+function renderSettings(settings) {
+  const normalized = normalizeSettings(settings);
 
-  const enabled = await runInTab(tab.id);
-  if (enabled !== null) {
-    toggle.checked = enabled;
-  }
+  document.querySelectorAll('.segments').forEach(group => {
+    const setting = group.dataset.setting;
+    group.querySelectorAll('button').forEach(button => {
+      button.dataset.active =
+        String(normalized[setting]) === button.dataset.value ? '1' : '0';
+    });
+  });
+
+  document.querySelectorAll('.position-grid button').forEach(button => {
+    button.dataset.active =
+      normalized.position === button.dataset.value ? '1' : '0';
+  });
 }
 
-toggle.addEventListener('change', async () => {
-  const tab = await getActiveTab();
-  if (!tab?.id) return;
+async function syncFromTab() {
+  const result = await runInTab();
+  if (!result) return;
 
-  try {
-    const enabled = await runInTab(tab.id, toggle.checked);
-    if (enabled !== null) {
-      toggle.checked = enabled;
+  toggle.checked = result.debug;
+  renderSettings(result.settings);
+}
+
+document.querySelectorAll('.segments button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const group = button.closest('.segments');
+    const next = normalizeSettings({
+      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
+      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
+      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
+      position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
+      [group.dataset.setting]: button.dataset.value,
+    });
+
+    renderSettings(next);
+    const result = await runInTab({ settings: next });
+    if (result?.settings) {
+      renderSettings(result.settings);
     }
+  });
+});
+
+document.querySelectorAll('.position-grid button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const next = normalizeSettings({
+      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
+      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
+      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
+      position: button.dataset.value,
+    });
+
+    renderSettings(next);
+    const result = await runInTab({ settings: next });
+    if (result?.settings) {
+      renderSettings(result.settings);
+    }
+  });
+});
+
+reset.addEventListener('click', async () => {
+  renderSettings(DEFAULT_SETTINGS);
+  toggle.checked = false;
+  const result = await runInTab({ settings: DEFAULT_SETTINGS, debug: false });
+  if (result?.settings) {
+    renderSettings(result.settings);
+  }
+});
+
+toggle.addEventListener('change', async () => {
+  try {
+    const result = await runInTab({ debug: toggle.checked });
+    if (result) toggle.checked = result.debug;
   } catch {
     toggle.checked = !toggle.checked;
   }
 });
 
+renderSettings(DEFAULT_SETTINGS);
 syncFromTab().catch(() => {});

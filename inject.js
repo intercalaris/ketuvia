@@ -23,10 +23,82 @@
     maxTextWidthPx: 720,
     playerPaddingPx: 32,
     fontSizeRatio: 0.0155,
-    minFontPx:      20,
-    maxFontPx:      28,
+    minFontPx:      16,
+    maxFontPx:      32,
     lineHeight:    1.4,
   };
+
+  const SETTINGS_STORAGE_KEY = 'ketuviaSettings';
+  const DEFAULT_SETTINGS = {
+    targetLines: 2,
+    textSize: 'medium',
+    background: 'medium',
+    position: 'center-low',
+  };
+  const TEXT_SIZE_SCALE = {
+    small: 0.9,
+    medium: 1.3,
+    large: 1.7,
+  };
+  const BACKGROUND_OPACITY = {
+    light: 0.3,
+    medium: 0.45,
+    dark: 0.78,
+  };
+  const OVERLAY_POSITIONS = {
+    'left-top': { x: 'left', y: '8%' },
+    'center-top': { x: 'center', y: '8%' },
+    'right-top': { x: 'right', y: '8%' },
+    'left-high': { x: 'left', y: '20%' },
+    'center-high': { x: 'center', y: '20%' },
+    'right-high': { x: 'right', y: '20%' },
+    'left-highish': { x: 'left', y: '35%' },
+    'center-highish': { x: 'center', y: '35%' },
+    'right-highish': { x: 'right', y: '35%' },
+    'left-middle': { x: 'left', y: '50%' },
+    'center-middle': { x: 'center', y: '50%' },
+    'right-middle': { x: 'right', y: '50%' },
+    'left-lowish': { x: 'left', y: '68%' },
+    'center-lowish': { x: 'center', y: '68%' },
+    'right-lowish': { x: 'right', y: '68%' },
+    'left-low': { x: 'left', y: '84%' },
+    'center-low': { x: 'center', y: '84%' },
+    'right-low': { x: 'right', y: '84%' },
+    'left-bottom': { x: 'left', y: '94%' },
+    'center-bottom': { x: 'center', y: '94%' },
+    'right-bottom': { x: 'right', y: '94%' },
+  };
+
+  function readSettings() {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
+      return normalizeSettings(parsed);
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  function normalizeSettings(settings) {
+    const targetLines = Number(settings?.targetLines);
+    const textSize = String(settings?.textSize || DEFAULT_SETTINGS.textSize);
+    const background = String(settings?.background || DEFAULT_SETTINGS.background);
+    const position = String(settings?.position || DEFAULT_SETTINGS.position);
+
+    return {
+      targetLines: [1, 2, 3].includes(targetLines)
+        ? targetLines
+        : DEFAULT_SETTINGS.targetLines,
+      textSize: Object.hasOwn(TEXT_SIZE_SCALE, textSize)
+        ? textSize
+        : DEFAULT_SETTINGS.textSize,
+      background: Object.hasOwn(BACKGROUND_OPACITY, background)
+        ? background
+        : DEFAULT_SETTINGS.background,
+      position: Object.hasOwn(OVERLAY_POSITIONS, position)
+        ? position
+        : DEFAULT_SETTINGS.position,
+    };
+  }
 
   const DEBUG = {
     enabled: false,
@@ -69,7 +141,29 @@
     triggerRetryId: null,
     triggerAttempts: 0,
     debugChunks: [],
+    settings: readSettings(),
   };
+
+  function applySettings(nextSettings) {
+    STATE.settings = normalizeSettings(nextSettings);
+    window.__ketuviaSettings = { ...STATE.settings };
+
+    try {
+      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(STATE.settings));
+    } catch {}
+
+    rebuildChunksForLayout();
+    renderCurrentCaption(true);
+
+    return { ...STATE.settings };
+  }
+
+  window.__ketuviaSettings = { ...STATE.settings };
+  window.__ketuviaApplySettings = applySettings;
+
+  window.addEventListener('ketuvia-settings-change', event => {
+    applySettings(event.detail);
+  });
 
   const log = (...a) => {
     if (!DEBUG.enabled) return;
@@ -97,6 +191,13 @@
     return document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
   }
 
+  function getRuntimeConfig() {
+    return {
+      ...CFG,
+      targetLines: STATE.settings.targetLines,
+    };
+  }
+
   function joinWords(words) {
     let text = '';
 
@@ -121,9 +222,12 @@
   function getLayoutMetrics(player) {
     const playerWidth = Math.max(0, player?.clientWidth || 0);
     if (!playerWidth) return null;
+    const settings = STATE.settings;
+    const runtimeConfig = getRuntimeConfig();
+    const textSizeScale = TEXT_SIZE_SCALE[settings.textSize] || TEXT_SIZE_SCALE.medium;
 
     const fontSizePx = clamp(
-      Math.round(playerWidth * CFG.fontSizeRatio * 10) / 10,
+      Math.round(playerWidth * CFG.fontSizeRatio * textSizeScale * 10) / 10,
       CFG.minFontPx,
       CFG.maxFontPx
     );
@@ -140,7 +244,7 @@
       textWidthPx,
       fontSizePx,
       lineHeight: CFG.lineHeight,
-      targetLines: CFG.targetLines,
+      targetLines: runtimeConfig.targetLines,
     };
   }
 
@@ -201,10 +305,34 @@
 
   function applyLayout(node, layout) {
     if (!node || !layout) return;
+    const position = OVERLAY_POSITIONS[STATE.settings.position] || OVERLAY_POSITIONS[DEFAULT_SETTINGS.position];
+
     node.style.setProperty('--rechunk-text-width', layout.textWidthPx + 'px');
     node.style.setProperty('--rechunk-font-size', layout.fontSizePx + 'px');
     node.style.setProperty('--rechunk-line-height', String(layout.lineHeight));
     node.style.setProperty('--rechunk-target-lines', String(layout.targetLines));
+    node.style.setProperty(
+      '--rechunk-bg-opacity',
+      String(BACKGROUND_OPACITY[STATE.settings.background] || BACKGROUND_OPACITY.medium)
+    );
+    node.style.top = position.y;
+    node.style.bottom = 'auto';
+    node.style.left = '';
+    node.style.right = '';
+
+    if (position.x === 'left') {
+      node.style.left = '8px';
+      node.style.transform = 'translateY(-50%)';
+      node.style.textAlign = 'left';
+    } else if (position.x === 'right') {
+      node.style.right = '8px';
+      node.style.transform = 'translateY(-50%)';
+      node.style.textAlign = 'right';
+    } else {
+      node.style.left = '50%';
+      node.style.transform = 'translate(-50%, -50%)';
+      node.style.textAlign = 'center';
+    }
   }
 
   function mountOverlay() {
@@ -283,7 +411,7 @@
     const player = mountOverlay();
     if (!player || !STATE.words.length) return;
 
-    const chunkResult = chunkWords(STATE.words, CFG);
+    const chunkResult = chunkWords(STATE.words, getRuntimeConfig());
     STATE.chunks = chunkResult.chunks;
     STATE.debugChunks = chunkResult.debugChunks;
     log('rebuilt ' + STATE.chunks.length + ' chunks for layout width=' + STATE.layout.textWidthPx);
@@ -495,7 +623,7 @@
     }
     STATE.words = words;
     mountOverlay();
-    const chunkResult = chunkWords(words, CFG);
+    const chunkResult = chunkWords(words, getRuntimeConfig());
     STATE.chunks = chunkResult.chunks;
     STATE.debugChunks = chunkResult.debugChunks;
     log('built ' + STATE.chunks.length + ' chunks from ' + words.length + ' words');
@@ -888,37 +1016,44 @@ function chunkWords(words, cfg) {
   const _captionHideStyle = document.createElement('style');
   _captionHideStyle.textContent = '.ytp-caption-window-container{visibility:hidden!important}';
 
+  function renderCurrentCaption(force = false) {
+    if (!STATE.overlay || !STATE.enabled) return;
+    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    if (!video) return;
+
+    const ms = (video.currentTime || 0) * 1000 + CFG.lookaheadMs;
+    let active = '';
+    let activeIndex = -1;
+    const N = STATE.chunks.length;
+
+    for (let i = 0; i < N; i++) {
+      const c = STATE.chunks[i];
+      const next = STATE.chunks[i + 1];
+      const winEnd = next ? next.startMs : c.endMs;
+      if (ms >= c.startMs && ms < winEnd) {
+        active = c.text;
+        activeIndex = i;
+        break;
+      }
+      if (ms < c.startMs) break;
+    }
+
+    if (!force && active === STATE.lastText) return;
+
+    if (STATE.overlayText) {
+      STATE.overlayText.textContent = active;
+    }
+    STATE.overlay.dataset.empty = active ? '0' : '1';
+    if (active && activeIndex >= 0) {
+      logRenderedChunk(activeIndex, STATE.chunks[activeIndex]);
+    }
+    STATE.lastText = active;
+  }
+
   function startPolling() {
     if (STATE.pollId) return;
     const tick = () => {
-      if (!STATE.overlay || !STATE.enabled) return;
-      const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
-      if (!video) return;
-      const ms = (video.currentTime || 0) * 1000 + CFG.lookaheadMs;
-      let active = '';
-      let activeIndex = -1;
-      const N = STATE.chunks.length;
-      for (let i = 0; i < N; i++) {
-        const c = STATE.chunks[i];
-        const next = STATE.chunks[i + 1];
-        const winEnd = next ? next.startMs : c.endMs;
-        if (ms >= c.startMs && ms < winEnd) {
-          active = c.text;
-          activeIndex = i;
-          break;
-        }
-        if (ms < c.startMs) break;
-      }
-      if (active !== STATE.lastText) {
-        if (STATE.overlayText) {
-          STATE.overlayText.textContent = active;
-        }
-        STATE.overlay.dataset.empty = active ? '0' : '1';
-        if (active && activeIndex >= 0) {
-          logRenderedChunk(activeIndex, STATE.chunks[activeIndex]);
-        }
-        STATE.lastText = active;
-      }
+      renderCurrentCaption();
     };
     STATE.pollId = setInterval(tick, CFG.pollMs);
   }
@@ -978,8 +1113,8 @@ function chunkWords(words, cfg) {
     btn.id = 'rechunk-toggle';
     btn.className = 'ytp-button';
     btn.type = 'button';
-    btn.setAttribute('aria-label', 'Toggle Rechunk Captions');
-    btn.title = 'Rechunk Captions';
+    btn.setAttribute('aria-label', 'Turn Ketuvia captions on or off');
+    btn.title = 'Turn Ketuvia captions on or off';
     btn.textContent = 'CC+';
     btn.addEventListener('click', () => {
       STATE.enabled = !STATE.enabled;
@@ -1011,11 +1146,11 @@ function chunkWords(words, cfg) {
     b.dataset.status  = STATE.statusMode;
     b.dataset.enabled = STATE.enabled ? '1' : '0';
     const labels = {
-      idle:        'Rechunk Captions: waiting for video',
-      loading:     'Rechunk Captions: loading',
-      active:      'Rechunk Captions: ON (click to disable)',
-      unavailable: 'Rechunk Captions: no auto-captions on this video',
-      error:       'Rechunk Captions: failed to load',
+      idle:        'Ketuvia: waiting for video',
+      loading:     'Ketuvia: loading captions',
+      active:      'Ketuvia is on (click to turn off)',
+      unavailable: 'Ketuvia: no auto-captions on this video',
+      error:       'Ketuvia: failed to load captions',
     };
     b.title = (STATE.enabled ? '' : '(disabled) ') + (labels[STATE.statusMode] || '');
   }
