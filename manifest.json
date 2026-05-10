@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ketuvia: accessible captions",
-  "version": "1.8.5",
-  "description": "Replaces YouTube's word-by-word auto-captions with phrase-based captions for better readability and accessibility.",
+  "version": "2.0",
+  "description": "Replaces YouTube's word-by-word auto-captions with customizable phrase-based captions for better readability and accessibility.",
   "permissions": [
     "activeTab",
     "scripting"
@@ -32,7 +32,7 @@
     {
       "resources": [
         "fonts/*",
-        "fonts/Atkinson_Hyperlegible/*"
+        "fonts/*/*"
       ],
       "matches": [
         "<all_urls>"

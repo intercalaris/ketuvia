@@ -34,6 +34,8 @@
     textSize: 'medium',
     background: 'medium',
     position: 'center-low',
+    font: 'atkinson',
+    allCaps: false,
   };
   const TEXT_SIZE_SCALE = {
     small: 0.9,
@@ -42,8 +44,15 @@
   };
   const BACKGROUND_OPACITY = {
     light: 0.3,
-    medium: 0.45,
-    dark: 0.78,
+    medium: 0.5,
+    dark: 0.8,
+  };
+  const FONT_FAMILIES = {
+    atkinson: '"Atkinson Hyperlegible"',
+    lexend: '"Lexend"',
+    noto: '"Noto Sans"',
+    average: '"Average Sans"',
+    roboto: '"Roboto Condensed"',
   };
   const OVERLAY_POSITIONS = {
     'left-top': { x: 'left', y: '8%' },
@@ -83,6 +92,8 @@
     const textSize = String(settings?.textSize || DEFAULT_SETTINGS.textSize);
     const background = String(settings?.background || DEFAULT_SETTINGS.background);
     const position = String(settings?.position || DEFAULT_SETTINGS.position);
+    const font = String(settings?.font || DEFAULT_SETTINGS.font);
+    const allCaps = Boolean(settings?.allCaps);
 
     return {
       targetLines: [1, 2, 3].includes(targetLines)
@@ -97,6 +108,10 @@
       position: Object.hasOwn(OVERLAY_POSITIONS, position)
         ? position
         : DEFAULT_SETTINGS.position,
+      font: Object.hasOwn(FONT_FAMILIES, font)
+        ? font
+        : DEFAULT_SETTINGS.font,
+      allCaps,
     };
   }
 
@@ -219,6 +234,11 @@
     return text.replace(/\s+/g, ' ').trim();
   }
 
+  function applyTextCase(text) {
+    if (!STATE.settings.allCaps || !text) return text;
+    return text.toLocaleUpperCase();
+  }
+
   function getLayoutMetrics(player) {
     const playerWidth = Math.max(0, player?.clientWidth || 0);
     if (!playerWidth) return null;
@@ -314,6 +334,10 @@
     node.style.setProperty(
       '--rechunk-bg-opacity',
       String(BACKGROUND_OPACITY[STATE.settings.background] || BACKGROUND_OPACITY.medium)
+    );
+    node.style.setProperty(
+      '--rechunk-font-family',
+      FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson
     );
     node.style.top = position.y;
     node.style.bottom = 'auto';
@@ -1041,7 +1065,7 @@ function chunkWords(words, cfg) {
     if (!force && active === STATE.lastText) return;
 
     if (STATE.overlayText) {
-      STATE.overlayText.textContent = active;
+      STATE.overlayText.textContent = applyTextCase(active);
     }
     STATE.overlay.dataset.empty = active ? '0' : '1';
     if (active && activeIndex >= 0) {

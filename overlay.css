@@ -1,13 +1,62 @@
 @font-face {
   font-family: "Atkinson Hyperlegible";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Regular.ttf") format("truetype");
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
   font-family: "Atkinson Hyperlegible";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/AtkinsonHyperlegible-Bold.ttf") format("truetype");
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Atkinson_Hyperlegible/bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Lexend";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Lexend/regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Lexend";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Lexend/bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Noto Sans";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Noto_Sans/regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Noto Sans";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Noto_Sans/bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Average Sans";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Average_Sans/regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Roboto Condensed";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto_Condensed/regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Roboto Condensed";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Roboto_Condensed/bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
 }
@@ -18,6 +67,7 @@
   --rechunk-line-height: 1.4;
   --rechunk-target-lines: 2;
   --rechunk-bg-opacity: 0.45;
+  --rechunk-font-family: "Atkinson Hyperlegible";
 
   position: absolute;
   left: 50%;
@@ -31,7 +81,7 @@
   pointer-events: none;
 
   font-family:
-    "Atkinson Hyperlegible",
+    var(--rechunk-font-family),
     sans-serif !important;
 
   font-size: var(--rechunk-font-size);
@@ -83,7 +133,7 @@
   justify-content: center;
 
   font-family:
-    "Atkinson Hyperlegible",
+    var(--rechunk-font-family),
     sans-serif !important;
 
   font-size: var(--rechunk-font-size);

@@ -1,3 +1,33 @@
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/Atkinson_Hyperlegible/regular.ttf") format("truetype");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Lexend";
+  src: url("fonts/Lexend/regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Noto Sans";
+  src: url("fonts/Noto_Sans/regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Average Sans";
+  src: url("fonts/Average_Sans/regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Roboto Condensed";
+  src: url("fonts/Roboto_Condensed/regular.woff2") format("woff2");
+  font-weight: 400;
+}
+
 body {
   margin: 0;
   width: 234px;
@@ -10,8 +40,10 @@ main {
   padding: 8px;
 }
 
+.font-setting,
 .setting,
 .position-setting,
+.caps-row,
 .debug-row {
   display: flex;
   align-items: center;
@@ -20,9 +52,43 @@ main {
 }
 
 .setting + .setting,
+.font-setting,
+.caps-row,
 .position-setting,
 #reset {
   margin-top: 7px;
+}
+
+.font-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: 136px;
+}
+
+.font-list button {
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  color: #c9c7bc;
+  background: #34352f;
+  cursor: pointer;
+}
+
+.font-list button[data-active="1"] {
+  color: #161713;
+  background: #d8d6ca;
+}
+
+.caps-row {
+  cursor: pointer;
+  user-select: none;
+}
+
+.caps-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .debug-row {
@@ -63,7 +129,7 @@ main {
 .position-grid {
   display: grid;
   grid-template-columns: repeat(3, 44px);
-  grid-auto-rows: 9px;
+  grid-auto-rows: 11px;
   gap: 2px;
   padding: 2px;
   border-radius: 7px;
@@ -72,7 +138,7 @@ main {
 
 .position-grid button {
   width: 44px;
-  height: 9px;
+  height: 11px;
   padding: 0;
   border: 0;
   border-radius: 2px;

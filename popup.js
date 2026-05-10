@@ -3,9 +3,12 @@ const DEFAULT_SETTINGS = {
   targetLines: 2,
   background: 'medium',
   position: 'center-low',
+  font: 'atkinson',
+  allCaps: false,
 };
 
 const toggle = document.getElementById('debug-toggle');
+const capsToggle = document.getElementById('caps-toggle');
 const reset = document.getElementById('reset');
 
 function normalizeSettings(settings) {
@@ -18,6 +21,10 @@ function normalizeSettings(settings) {
   const background = ['light', 'medium', 'dark'].includes(settings?.background)
     ? settings.background
     : DEFAULT_SETTINGS.background;
+  const font = ['atkinson', 'lexend', 'noto', 'average', 'roboto'].includes(settings?.font)
+    ? settings.font
+    : DEFAULT_SETTINGS.font;
+  const allCaps = Boolean(settings?.allCaps);
   const position = [
     'left-top', 'center-top', 'right-top',
     'left-high', 'center-high', 'right-high',
@@ -30,7 +37,7 @@ function normalizeSettings(settings) {
     ? settings.position
     : DEFAULT_SETTINGS.position;
 
-  return { textSize, targetLines, background, position };
+  return { textSize, targetLines, background, position, font, allCaps };
 }
 
 async function getActiveTab() {
@@ -96,6 +103,13 @@ function renderSettings(settings) {
     button.dataset.active =
       normalized.position === button.dataset.value ? '1' : '0';
   });
+
+  document.querySelectorAll('.font-list button').forEach(button => {
+    button.dataset.active =
+      normalized.font === button.dataset.value ? '1' : '0';
+  });
+
+  capsToggle.checked = normalized.allCaps;
 }
 
 async function syncFromTab() {
@@ -114,6 +128,8 @@ document.querySelectorAll('.segments button').forEach(button => {
       targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
       background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
       position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
+      font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
+      allCaps: document.getElementById('caps-toggle')?.checked,
       [group.dataset.setting]: button.dataset.value,
     });
 
@@ -131,7 +147,28 @@ document.querySelectorAll('.position-grid button').forEach(button => {
       textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
       targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
       background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
+      font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
+      allCaps: document.getElementById('caps-toggle')?.checked,
       position: button.dataset.value,
+    });
+
+    renderSettings(next);
+    const result = await runInTab({ settings: next });
+    if (result?.settings) {
+      renderSettings(result.settings);
+    }
+  });
+});
+
+document.querySelectorAll('.font-list button').forEach(button => {
+  button.addEventListener('click', async () => {
+    const next = normalizeSettings({
+      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
+      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
+      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
+      position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
+      font: button.dataset.value,
+      allCaps: document.getElementById('caps-toggle')?.checked,
     });
 
     renderSettings(next);
@@ -146,6 +183,23 @@ reset.addEventListener('click', async () => {
   renderSettings(DEFAULT_SETTINGS);
   toggle.checked = false;
   const result = await runInTab({ settings: DEFAULT_SETTINGS, debug: false });
+  if (result?.settings) {
+    renderSettings(result.settings);
+  }
+});
+
+capsToggle.addEventListener('change', async () => {
+  const next = normalizeSettings({
+    textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
+    targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
+    background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
+    position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
+    font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
+    allCaps: capsToggle.checked,
+  });
+
+  renderSettings(next);
+  const result = await runInTab({ settings: next });
   if (result?.settings) {
     renderSettings(result.settings);
   }
