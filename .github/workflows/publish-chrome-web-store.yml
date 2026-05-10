@@ -164,4 +164,4 @@ jobs:
             --api-key="$AMO_JWT_ISSUER" \
             --api-secret="$AMO_JWT_SECRET" \
             --amo-metadata=amo-metadata.json \
-            --timeout=120000
+            --approval-timeout=0
