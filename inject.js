@@ -39,7 +39,7 @@
   };
   const TEXT_SIZE_SCALE = {
     small: 0.9,
-    medium: 1.3,
+    medium: 1.2,
     large: 1.7,
   };
   const BACKGROUND_OPACITY = {
