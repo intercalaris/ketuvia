@@ -13,15 +13,15 @@
 }
 
 @font-face {
-  font-family: "Open Sans";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Open_Sans/regular.woff2") format("woff2");
+  font-family: "Cascadia Code";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Cascadia_Code/regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Open Sans";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Open_Sans/bold.woff2") format("woff2");
+  font-family: "Cascadia Code";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Cascadia_Code/bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
 }
@@ -62,15 +62,15 @@
 }
 
 @font-face {
-  font-family: "Rubik";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Rubik/regular.woff2") format("woff2");
+  font-family: "Bona Nova";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Bona_Nova/regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
-  font-family: "Rubik";
-  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Rubik/bold.woff2") format("woff2");
+  font-family: "Bona Nova";
+  src: url("chrome-extension://__MSG_@@extension_id__/fonts/Bona_Nova/bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
 }
@@ -102,6 +102,8 @@
   line-height: var(--rechunk-line-height);
   font-weight: 400;
   letter-spacing: 0.01em;
+  font-feature-settings: var(--rechunk-font-feature-settings, normal);
+  font-variant-ligatures: var(--rechunk-font-variant-ligatures, normal);
 
   color: #fff;
   text-align: center;
@@ -154,6 +156,8 @@
   line-height: var(--rechunk-line-height);
   font-weight: 400;
   letter-spacing: 0.01em;
+  font-feature-settings: var(--rechunk-font-feature-settings, normal);
+  font-variant-ligatures: var(--rechunk-font-variant-ligatures, normal);
   --rechunk-bg-opacity: 0.45;
 
   -webkit-font-smoothing: antialiased;

@@ -49,11 +49,11 @@
   };
   const FONT_FAMILIES = {
     atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
-    opensans: '"Open Sans", system-ui, sans-serif',
+    cascadia: '"Cascadia Code", ui-monospace, monospace',
     noto: '"Noto Sans", system-ui, sans-serif',
     average: '"Average Sans", system-ui, sans-serif',
     roboto: '"Roboto", system-ui, sans-serif',
-    rubik: '"Rubik", system-ui, sans-serif',
+    bona: '"Bona Nova", Georgia, serif',
   };
   const OVERLAY_POSITIONS = {
     'left-top': { x: 'left', y: '8%' },
@@ -276,9 +276,21 @@
     return STATE.measureRange;
   }
 
-  function measureNodeLayout(node, containerWidthPx, targetLines) {
+  function measureNodeLayout(node, containerWidthPx, targetLines, includeDebugMetrics = false) {
     if (!node) {
-      return { lineCount: 0, lastLineFill: 0, fillRatio: 0, rects: [], rawRectCount: 0 };
+      return {
+        lineCount: 0,
+        heightLineCount: 0,
+        maxLineCount: 0,
+        lastLineFill: 0,
+        fillRatio: 0,
+        rects: [],
+        rawRectCount: 0,
+        clientHeight: null,
+        scrollHeight: null,
+        offsetHeight: null,
+        lineHeightPx: null,
+      };
     }
 
     const range = ensureMeasureRange();
@@ -321,7 +333,47 @@
         ? clamp(((Math.max(0, lineCount - 1)) + lastLineFill) / targetLines, 0, 1)
         : 0;
 
-    return { lineCount, lastLineFill, fillRatio, rects: lines, rawRectCount: rawRects.length };
+    let heightLineCount = lineCount;
+    let maxLineCount = lineCount;
+    let clientHeight = null;
+    let scrollHeight = null;
+    let offsetHeight = null;
+    let lineHeightPx = null;
+
+    if (includeDebugMetrics) {
+      const style = window.getComputedStyle(node);
+      const fontSizePx = Number.parseFloat(style.fontSize) || 0;
+      lineHeightPx = Number.parseFloat(style.lineHeight);
+      if (!Number.isFinite(lineHeightPx)) {
+        const lineHeight = Number.parseFloat(style.lineHeight);
+        lineHeightPx = Number.isFinite(lineHeight)
+          ? lineHeight * fontSizePx
+          : fontSizePx * CFG.lineHeight;
+      }
+      clientHeight = node.clientHeight || 0;
+      scrollHeight = node.scrollHeight || 0;
+      offsetHeight = node.offsetHeight || 0;
+      const heightBasis = Math.max(scrollHeight, clientHeight, offsetHeight);
+      heightLineCount =
+        lineHeightPx > 0 && heightBasis > 0
+          ? Math.max(1, Math.round(heightBasis / lineHeightPx))
+          : lineCount;
+      maxLineCount = Math.max(lineCount, heightLineCount);
+    }
+
+    return {
+      lineCount,
+      heightLineCount,
+      maxLineCount,
+      lastLineFill,
+      fillRatio,
+      rects: lines,
+      rawRectCount: rawRects.length,
+      clientHeight,
+      scrollHeight,
+      offsetHeight,
+      lineHeightPx,
+    };
   }
 
   function applyLayout(node, layout) {
@@ -339,6 +391,14 @@
     node.style.setProperty(
       '--rechunk-font-family',
       FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson
+    );
+    node.style.setProperty(
+      '--rechunk-font-feature-settings',
+      STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal'
+    );
+    node.style.setProperty(
+      '--rechunk-font-variant-ligatures',
+      STATE.settings.font === 'cascadia' ? 'none' : 'normal'
     );
     const y = Number.parseFloat(position.y);
     const anchorTop = y <= 8;
@@ -449,7 +509,8 @@
     return measureNodeLayout(
       STATE.measurerText,
       STATE.layout.textWidthPx,
-      STATE.layout.targetLines
+      STATE.layout.targetLines,
+      DEBUG.enabled
     );
   }
 
@@ -495,7 +556,8 @@
     const rendered = measureNodeLayout(
       STATE.overlayText,
       STATE.overlayText.clientWidth || STATE.layout.textWidthPx,
-      STATE.layout.targetLines
+      STATE.layout.targetLines,
+      true
     );
 
     return {
@@ -504,9 +566,15 @@
       cssLineHeight: textStyle.lineHeight,
       innerWidthPx: STATE.overlayText.clientWidth,
       renderedLineCount: rendered.lineCount,
+      renderedHeightLineCount: rendered.heightLineCount,
+      renderedMaxLineCount: rendered.maxLineCount,
       renderedRawRectCount: rendered.rawRectCount,
       renderedLastLineFill: Number(rendered.lastLineFill.toFixed(3)),
       renderedFillRatio: Number(rendered.fillRatio.toFixed(3)),
+      renderedClientHeight: roundNumber(rendered.clientHeight),
+      renderedScrollHeight: roundNumber(rendered.scrollHeight),
+      renderedOffsetHeight: roundNumber(rendered.offsetHeight),
+      renderedLineHeightPx: roundNumber(rendered.lineHeightPx, 2),
     };
   }
 
@@ -526,9 +594,15 @@
         idx: chunk.idx,
         words: `${chunk.startWord}-${chunk.endWord}`,
         measuredLines: chunk.measuredLineCount,
+        measuredHeightLines: chunk.measuredHeightLineCount,
+        measuredMaxLines: chunk.measuredMaxLineCount,
         measuredRawRects: chunk.measuredRawRectCount,
         measuredFill: chunk.measuredFillRatio,
         lastLineFill: chunk.measuredLastLineFill,
+        measuredClientHeight: chunk.measuredClientHeight,
+        measuredScrollHeight: chunk.measuredScrollHeight,
+        measuredOffsetHeight: chunk.measuredOffsetHeight,
+        measuredLineHeightPx: chunk.measuredLineHeightPx,
         reason: chunk.reason,
         text: chunk.text,
       }));
@@ -547,14 +621,26 @@
       endMs: chunk.endMs,
       text: chunk.text,
       measuredLines: meta?.measuredLineCount ?? null,
+      measuredHeightLines: meta?.measuredHeightLineCount ?? null,
+      measuredMaxLines: meta?.measuredMaxLineCount ?? null,
       measuredRawRects: meta?.measuredRawRectCount ?? null,
       measuredFill: meta?.measuredFillRatio ?? null,
       measuredLastLineFill: meta?.measuredLastLineFill ?? null,
+      measuredClientHeight: meta?.measuredClientHeight ?? null,
+      measuredScrollHeight: meta?.measuredScrollHeight ?? null,
+      measuredOffsetHeight: meta?.measuredOffsetHeight ?? null,
+      measuredLineHeightPx: meta?.measuredLineHeightPx ?? null,
       reason: meta?.reason ?? null,
       renderedLines: rendered?.renderedLineCount ?? null,
+      renderedHeightLines: rendered?.renderedHeightLineCount ?? null,
+      renderedMaxLines: rendered?.renderedMaxLineCount ?? null,
       renderedRawRects: rendered?.renderedRawRectCount ?? null,
       renderedFill: rendered?.renderedFillRatio ?? null,
       renderedLastLineFill: rendered?.renderedLastLineFill ?? null,
+      renderedClientHeight: rendered?.renderedClientHeight ?? null,
+      renderedScrollHeight: rendered?.renderedScrollHeight ?? null,
+      renderedOffsetHeight: rendered?.renderedOffsetHeight ?? null,
+      renderedLineHeightPx: rendered?.renderedLineHeightPx ?? null,
       cssWidth: rendered?.cssWidth ?? null,
       cssFontSize: rendered?.cssFontSize ?? null,
       cssLineHeight: rendered?.cssLineHeight ?? null,
@@ -568,6 +654,12 @@
         }));
       });
     }
+  }
+
+  function roundNumber(value, digits = 0) {
+    return Number.isFinite(value)
+      ? Number(value.toFixed(digits))
+      : null;
   }
 
   function onTimedtextBody(url, text) {
@@ -863,18 +955,59 @@
 
   function extractWords(json3) {
     const out = [];
+    const debug = DEBUG.enabled
+      ? {
+          eventCount: (json3.events || []).length,
+          inputSegCount: 0,
+          outputTokenCount: 0,
+          multiWordSegCount: 0,
+          skippedNonTextCount: 0,
+          skippedNonIncreasingStartCount: 0,
+          samples: [],
+        }
+      : null;
     let lastStart = -1;
-    for (const ev of (json3.events || [])) {
+    for (const [eventIndex, ev] of (json3.events || []).entries()) {
       if (!ev.segs) continue;
       const base = ev.tStartMs || 0;
-      for (const s of ev.segs) {
+      const eventDurationMs = ev.dDurationMs || 0;
+      for (const [segIndex, s] of ev.segs.entries()) {
+        if (debug) debug.inputSegCount += 1;
         const text = s.utf8;
-        if (!text || text === '\n') continue;
+        if (!text || text === '\n') {
+          if (debug) debug.skippedNonTextCount += 1;
+          continue;
+        }
         const start = base + (s.tOffsetMs || 0);
-        if (start <= lastStart) continue;
+        if (start <= lastStart) {
+          if (debug) debug.skippedNonIncreasingStartCount += 1;
+          continue;
+        }
         out.push({ start, text });
+        if (debug) {
+          const tokens = text.trim().split(/\s+/).filter(Boolean);
+          if (tokens.length > 1) debug.multiWordSegCount += 1;
+          if (debug.samples.length < 30 || tokens.length > 1) {
+            debug.samples.push({
+              eventIndex,
+              segIndex,
+              eventStartMs: base,
+              eventDurationMs,
+              segOffsetMs: s.tOffsetMs || 0,
+              startMs: start,
+              tokenCount: tokens.length,
+              keptAs: 'segment',
+              text,
+              tokens,
+            });
+          }
+        }
         lastStart = start;
       }
+    }
+    if (debug) {
+      debug.outputTokenCount = out.length;
+      console.log('[Rechunk][Debug][EXTRACT]', JSON.stringify(debug));
     }
     return out;
   }
@@ -917,9 +1050,15 @@ function chunkWords(words, cfg) {
         startWord: startIndex,
         endWord: endIndexExclusive - 1,
         measuredLineCount: meta.layout.lineCount,
+        measuredHeightLineCount: meta.layout.heightLineCount,
+        measuredMaxLineCount: meta.layout.maxLineCount,
         measuredRawRectCount: meta.layout.rawRectCount,
         measuredFillRatio: Number(meta.layout.fillRatio.toFixed(3)),
         measuredLastLineFill: Number(meta.layout.lastLineFill.toFixed(3)),
+        measuredClientHeight: roundNumber(meta.layout.clientHeight),
+        measuredScrollHeight: roundNumber(meta.layout.scrollHeight),
+        measuredOffsetHeight: roundNumber(meta.layout.offsetHeight),
+        measuredLineHeightPx: roundNumber(meta.layout.lineHeightPx, 2),
         reason: meta.reason,
         candidates: meta.candidates,
         text: displayText,
@@ -937,7 +1076,7 @@ function chunkWords(words, cfg) {
     let firstGoodPunctuationLayout = null;
     let lastFitEnd = start + 1;
     let lastFitLayout = null;
-    const candidateDebug = [];
+    const candidateDebug = shouldDebug ? [] : null;
 
     for (let end = start + 1; end <= words.length; end++) {
       const slice = words.slice(start, end);
@@ -1052,7 +1191,7 @@ function chunkWords(words, cfg) {
     pushChunk(start, chosenEnd, {
       layout: chosenLayout || { lineCount: 0, fillRatio: 0, lastLineFill: 0 },
       reason,
-      candidates: candidateDebug,
+      candidates: shouldDebug ? candidateDebug : null,
     });
     start = chosenEnd;
   }

@@ -21,7 +21,7 @@ function normalizeSettings(settings) {
   const background = ['light', 'medium', 'dark'].includes(settings?.background)
     ? settings.background
     : DEFAULT_SETTINGS.background;
-  const font = ['atkinson', 'opensans', 'noto', 'average', 'roboto', 'rubik'].includes(settings?.font)
+  const font = ['atkinson', 'cascadia', 'noto', 'average', 'roboto', 'bona'].includes(settings?.font)
     ? settings.font
     : DEFAULT_SETTINGS.font;
   const allCaps = Boolean(settings?.allCaps);

@@ -5,8 +5,8 @@
 }
 
 @font-face {
-  font-family: "Open Sans";
-  src: url("fonts/Open_Sans/regular.woff2") format("woff2");
+  font-family: "Cascadia Code";
+  src: url("fonts/Cascadia_Code/regular.ttf") format("truetype");
   font-weight: 400;
 }
 
@@ -29,8 +29,8 @@
 }
 
 @font-face {
-  font-family: "Rubik";
-  src: url("fonts/Rubik/regular.woff2") format("woff2");
+  font-family: "Bona Nova";
+  src: url("fonts/Bona_Nova/regular.ttf") format("truetype");
   font-weight: 400;
 }
 
@@ -74,10 +74,16 @@ main {
 
 .font-list button {
   height: 22px;
+  min-width: 0;
+  padding: 0 4px;
   border: 0;
   border-radius: 6px;
   color: #c9c7bc;
   background: #34352f;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 
