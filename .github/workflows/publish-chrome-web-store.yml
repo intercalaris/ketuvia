@@ -109,6 +109,7 @@ jobs:
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
       - name: Upload to Chrome Web Store
+        id: upload
         shell: bash
         env:
           ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
@@ -117,13 +118,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -sS --fail-with-body \
+          response=$(curl -sS -w "\n%{http_code}" \
             -H "Authorization: Bearer $ACCESS_TOKEN" \
             -X POST \
             -T "dist/ketuvia-chrome-$VERSION.zip" \
-            "https://chromewebstore.googleapis.com/upload/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:upload"
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:upload")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+
+          if [ "$http_code" = "400" ]; then
+            reason=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error",{}).get("reason",""))' <<< "$body" 2>/dev/null || echo "")
+            if [ "$reason" = "NOT_UPDATEABLE" ]; then
+              echo "Chrome item is currently in review — skipping."
+              echo "skipped=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "$body"; exit 1
+          fi
+
+          if [ "$http_code" -ge 400 ] 2>/dev/null; then
+            echo "$body"; exit 1
+          fi
+
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
 
       - name: Publish Chrome submission
+        if: steps.upload.outputs.skipped != 'true'
         shell: bash
         env:
           ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
@@ -157,11 +178,15 @@ jobs:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
         run: |
-          set -euo pipefail
-          npx --yes web-ext@8 sign \
+          set -uo pipefail
+          output=$(npx --yes web-ext@8 sign \
             --source-dir=dist/firefox \
             --channel=listed \
             --api-key="$AMO_JWT_ISSUER" \
             --api-secret="$AMO_JWT_SECRET" \
             --amo-metadata=amo-metadata.json \
-            --approval-timeout=0
+            --approval-timeout=0 2>&1) && echo "$output" || {
+            echo "$output"
+            echo "$output" | grep -q "already exists" && { echo "Version already submitted to AMO — skipping."; exit 0; }
+            exit 1
+          }
