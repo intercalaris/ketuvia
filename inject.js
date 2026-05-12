@@ -479,18 +479,15 @@
 
     node.style.top = position.y;
     node.style.bottom = 'auto';
-    node.style.left = '';
-    node.style.right = '';
+    node.style.left = 'auto';
+    node.style.right = 'auto';
 
     if (position.x === 'left') {
       node.style.left = '8px';
-      node.style.textAlign = 'left';
     } else if (position.x === 'right') {
       node.style.right = '8px';
-      node.style.textAlign = 'right';
     } else {
       node.style.left = '50%';
-      node.style.textAlign = 'center';
     }
 
     if (anchorTop) {

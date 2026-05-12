@@ -207,14 +207,17 @@ main {
 }
 
 .font-size-segments {
-  align-items: baseline;
+  align-items: flex-end;
   margin-bottom: 3px;
   width: max-content;
 }
 
 .font-size-segments button {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 3px;
   line-height: 1;
-  padding-top: 4px;
 }
 
 .font-size-segments button[data-value="small"] {
