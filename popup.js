@@ -8,8 +8,11 @@ const DEFAULT_SETTINGS = {
 };
 
 const toggle = document.getElementById('debug-toggle');
+const ketuviaOn = document.getElementById('ketuvia-on');
+const ketuviaOff = document.getElementById('ketuvia-off');
 const capsToggle = document.getElementById('caps-toggle');
 const reset = document.getElementById('reset');
+const ENABLED_STORAGE_KEY = 'ketuviaEnabled';
 
 function normalizeSettings(settings) {
   const textSize = ['small', 'medium', 'large'].includes(settings?.textSize)
@@ -45,45 +48,59 @@ async function getActiveTab() {
   return tab;
 }
 
+async function getGlobalEnabled() {
+  const items = await chrome.storage.local.get({ [ENABLED_STORAGE_KEY]: true });
+  return items[ENABLED_STORAGE_KEY] !== false;
+}
+
+async function setGlobalEnabled(enabled) {
+  await chrome.storage.local.set({ [ENABLED_STORAGE_KEY]: Boolean(enabled) });
+}
+
 async function runInTab(payload = {}) {
   const tab = await getActiveTab();
   if (!tab?.id) return null;
 
-  const [{ result }] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    world: 'MAIN',
-    func: nextPayload => {
-      const host = window.location.hostname;
-      const isYouTube = host === 'youtube.com' ||
-        host === 'www.youtube.com' ||
-        host === 'm.youtube.com';
+  let result = null;
+  try {
+    [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: nextPayload => {
+        const host = window.location.hostname;
+        const isYouTube = host === 'youtube.com' ||
+          host === 'www.youtube.com' ||
+          host === 'm.youtube.com';
 
-      if (!isYouTube) return null;
+        if (!isYouTube) return null;
 
-      if (nextPayload.settings) {
-        if (typeof window.__ketuviaApplySettings === 'function') {
-          window.__ketuviaApplySettings(nextPayload.settings);
-        } else {
-          window.dispatchEvent(new CustomEvent('ketuvia-settings-change', {
-            detail: nextPayload.settings,
+        if (nextPayload.settings) {
+          if (typeof window.__ketuviaApplySettings === 'function') {
+            window.__ketuviaApplySettings(nextPayload.settings);
+          } else {
+            window.dispatchEvent(new CustomEvent('ketuvia-settings-change', {
+              detail: nextPayload.settings,
+            }));
+          }
+        }
+
+        if (typeof nextPayload.debug === 'boolean') {
+          window.__ketuviaDebugEnabled = nextPayload.debug;
+          window.dispatchEvent(new CustomEvent('ketuvia-debug-change', {
+            detail: { enabled: nextPayload.debug },
           }));
         }
-      }
 
-      if (typeof nextPayload.debug === 'boolean') {
-        window.__ketuviaDebugEnabled = nextPayload.debug;
-        window.dispatchEvent(new CustomEvent('ketuvia-debug-change', {
-          detail: { enabled: nextPayload.debug },
-        }));
-      }
-
-      return {
-        debug: Boolean(window.__ketuviaDebugEnabled),
-        settings: window.__ketuviaSettings || null,
-      };
-    },
-    args: [payload],
-  });
+        return {
+          debug: Boolean(window.__ketuviaDebugEnabled),
+          settings: window.__ketuviaSettings || null,
+        };
+      },
+      args: [payload],
+    });
+  } catch {
+    return null;
+  }
 
   return result;
 }
@@ -112,7 +129,14 @@ function renderSettings(settings) {
   capsToggle.checked = normalized.allCaps;
 }
 
+function renderEnabled(enabled) {
+  ketuviaOn.dataset.active = enabled ? '1' : '0';
+  ketuviaOff.dataset.active = enabled ? '0' : '1';
+}
+
 async function syncFromTab() {
+  renderEnabled(await getGlobalEnabled());
+
   const result = await runInTab();
   if (!result) return;
 
@@ -182,7 +206,12 @@ document.querySelectorAll('.font-list button').forEach(button => {
 reset.addEventListener('click', async () => {
   renderSettings(DEFAULT_SETTINGS);
   toggle.checked = false;
+  renderEnabled(true);
+  await setGlobalEnabled(true);
   const result = await runInTab({ settings: DEFAULT_SETTINGS, debug: false });
+  if (result) {
+    toggle.checked = result.debug;
+  }
   if (result?.settings) {
     renderSettings(result.settings);
   }
@@ -213,6 +242,18 @@ toggle.addEventListener('change', async () => {
     toggle.checked = !toggle.checked;
   }
 });
+
+async function updateEnabled(enabled) {
+  renderEnabled(enabled);
+  try {
+    await setGlobalEnabled(enabled);
+  } catch {
+    renderEnabled(!enabled);
+  }
+}
+
+ketuviaOn.addEventListener('click', () => updateEnabled(true));
+ketuviaOff.addEventListener('click', () => updateEnabled(false));
 
 renderSettings(DEFAULT_SETTINGS);
 syncFromTab().catch(() => {});

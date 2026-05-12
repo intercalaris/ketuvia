@@ -30,7 +30,6 @@
   };
 
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
-  const ENABLED_STORAGE_KEY   = 'ketuviaEnabled';
   const DEFAULT_SETTINGS = {
     targetLines: 2,
     textSize: 'medium',
@@ -144,12 +143,7 @@
   });
 
   const STATE = {
-    enabled: (() => {
-      try {
-        const val = window.localStorage.getItem(ENABLED_STORAGE_KEY);
-        return val === null ? true : val !== 'false';
-      } catch { return true; }
-    })(),
+    enabled: true,
     videoId:    null,
     asrLang:    null,
     words:      [],
@@ -163,7 +157,6 @@
     resizeTimerId: null,
     measureRange: null,
     pollId:     null,
-    button:     null,
     lastText:   null,
     statusMode: 'idle',
     triggered:  false,
@@ -176,6 +169,57 @@
     debugChunks: [],
     settings: readSettings(),
   };
+
+  window.__ketuviaEnabled = STATE.enabled;
+
+  function areNativeCaptionsEnabled() {
+    const player = getPlayerElement();
+    const button =
+      player?.querySelector('.ytp-subtitles-button') ||
+      document.querySelector('.ytp-subtitles-button');
+
+    if (!button) return false;
+
+    const ariaPressed = button.getAttribute('aria-pressed');
+    if (ariaPressed === 'true') return true;
+    if (ariaPressed === 'false') return false;
+
+    return button.classList.contains('ytp-button-active');
+  }
+
+  function clearKetuviaOverlay() {
+    if (STATE.overlayText) {
+      STATE.overlayText.textContent = '';
+    }
+    if (STATE.overlay) {
+      STATE.overlay.dataset.empty = '1';
+    }
+    STATE.lastText = null;
+    if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
+  }
+
+  function setEnabled(enabled) {
+    STATE.enabled = Boolean(enabled);
+    window.__ketuviaEnabled = STATE.enabled;
+
+    if (STATE.enabled) {
+      if (!areNativeCaptionsEnabled()) {
+        clearKetuviaOverlay();
+        return;
+      }
+
+      if (STATE.chunks.length) { mountOverlay(); startPolling(); renderCurrentCaption(true); }
+      else if (STATE.words.length) { rebuildChunksForLayout(); startPolling(); }
+      else if (STATE.asrLang && !STATE.triggered) waitForPlayerThenTrigger();
+    } else {
+      if (STATE.pollId) { clearInterval(STATE.pollId); STATE.pollId = null; }
+      clearKetuviaOverlay();
+    }
+  }
+
+  window.addEventListener('ketuvia-enabled-sync', () => {
+    setEnabled(document.documentElement.dataset.ketuviaEnabled !== '0');
+  });
 
   function applySettings(nextSettings) {
     const previousSettings = STATE.settings;
@@ -191,6 +235,11 @@
       previousSettings.textSize !== STATE.settings.textSize ||
       previousSettings.font !== STATE.settings.font ||
       previousSettings.allCaps !== STATE.settings.allCaps;
+
+    if (!STATE.enabled || !areNativeCaptionsEnabled()) {
+      clearKetuviaOverlay();
+      return { ...STATE.settings };
+    }
 
     if (needsRebuild && previousSettings.font !== STATE.settings.font) {
       rebuildChunksAfterFontReady();
@@ -815,7 +864,10 @@
     }
     STATE.words = words;
     clearTriggerRetry();
-    if (!STATE.enabled) return;
+    if (!STATE.enabled || !areNativeCaptionsEnabled()) {
+      clearKetuviaOverlay();
+      return;
+    }
     mountOverlay();
     setStatus('active');
     startPolling();
@@ -853,8 +905,6 @@
     if (remaining <= 0) {
       clearNavRetry();
       STATE.statusMode = 'unavailable';
-      ensureButton();
-      updateButton();
       return;
     }
 
@@ -880,7 +930,13 @@
   }
 
   function triggerCaptionLoad() {
-    if (!STATE.videoId || !STATE.asrLang || !STATE.enabled || STATE.chunks.length) return;
+    if (
+      !STATE.videoId ||
+      !STATE.asrLang ||
+      !STATE.enabled ||
+      STATE.chunks.length ||
+      !areNativeCaptionsEnabled()
+    ) return;
 
     const player = document.getElementById('movie_player');
     if (!player || typeof player.setOption !== 'function') {
@@ -917,13 +973,6 @@
     let requested = false;
 
     try {
-      player.setOption('captions', 'track', { languageCode: STATE.asrLang });
-      requested = true;
-    } catch (e) {
-      warn('setOption(track) failed: ' + e.message);
-    }
-
-    try {
       player.setOption('captions', 'reload', true);
       requested = true;
     } catch {}
@@ -935,7 +984,12 @@
     clearTriggerRetry();
     STATE.triggerRetryId = setTimeout(() => {
       STATE.triggerRetryId = null;
-      if (STATE.chunks.length || !STATE.enabled || !STATE.videoId) return;
+      if (
+        STATE.chunks.length ||
+        !STATE.enabled ||
+        !STATE.videoId ||
+        !areNativeCaptionsEnabled()
+      ) return;
 
       if (!requested || STATE.triggerAttempts < CFG.maxTriggerAttempts) {
         triggerCaptionLoad();
@@ -944,8 +998,6 @@
 
       warn('timedtext not intercepted after ' + STATE.triggerAttempts + ' attempts');
       setStatus('error');
-      mountOverlay();
-      flashOverlay('Ketuvia: click the CC button twice to activate');
     }, CFG.triggerRetryMs);
   }
 
@@ -962,7 +1014,6 @@
 
     const tracks = readCaptionTracks();
     if (!tracks || !tracks.length) {
-      ensureButton();
       setStatus('loading');
       scheduleNavRetry();
       return;
@@ -972,7 +1023,7 @@
 
     const asr = tracks.find(t => t.kind === 'asr');
     if (!asr) {
-      STATE.statusMode = 'unavailable'; ensureButton(); updateButton(); return;
+      STATE.statusMode = 'unavailable'; return;
     }
 
     STATE.asrLang = asr.languageCode || 'en';
@@ -980,15 +1031,19 @@
       log('asr track lang=' + STATE.asrLang + ' for ' + vid);
     }
 
-    ensureButton();
-    if (STATE.enabled && !STATE.chunks.length) {
+    if (STATE.enabled && !STATE.chunks.length && areNativeCaptionsEnabled()) {
       setStatus('loading');
       waitForPlayerThenTrigger();
     }
   }
 
   function waitForPlayerThenTrigger() {
-    if (STATE.statusMode === 'active' || !STATE.enabled || STATE.chunks.length) return;
+    if (
+      STATE.statusMode === 'active' ||
+      !STATE.enabled ||
+      STATE.chunks.length ||
+      !areNativeCaptionsEnabled()
+    ) return;
     if (STATE.triggerRetryId) return;
     clearTriggerRetry();
     STATE.triggerRetryId = setTimeout(() => {
@@ -1288,6 +1343,14 @@ async function chunkWords(words, cfg, requestId) {
 
   function renderCurrentCaption(force = false) {
     if (!STATE.overlay || !STATE.enabled) return;
+    if (!areNativeCaptionsEnabled()) {
+      clearKetuviaOverlay();
+      return;
+    }
+    if (!document.head.contains(_captionHideStyle)) {
+      document.head.appendChild(_captionHideStyle);
+    }
+
     const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
     if (!video) return;
 
@@ -1366,64 +1429,13 @@ async function chunkWords(words, cfg, requestId) {
     STATE.triggered  = false;
     STATE.triggerAttempts = 0;
     STATE.statusMode = 'idle';
-    updateButton();
   }
 
   function setStatus(mode) {
     STATE.statusMode = mode;
-    updateButton();
-    if (mode === 'error') { mountOverlay(); flashOverlay('Ketuvia: failed to load captions'); }
-  }
-
-  function ensureButton() {
-    if (STATE.button && document.body.contains(STATE.button)) { updateButton(); return; }
-    const right = document.querySelector('.ytp-right-controls');
-    if (!right) { setTimeout(ensureButton, 300); return; }
-    const btn = document.createElement('button');
-    btn.id = 'rechunk-toggle';
-    btn.className = 'ytp-button';
-    btn.type = 'button';
-    btn.setAttribute('aria-label', 'Turn Ketuvia captions on or off');
-    btn.title = 'Turn Ketuvia captions on or off';
-    btn.textContent = 'CC+';
-    btn.addEventListener('click', () => {
-      STATE.enabled = !STATE.enabled;
-      try { window.localStorage.setItem(ENABLED_STORAGE_KEY, String(STATE.enabled)); } catch {}
-      if (STATE.enabled) {
-        if (STATE.chunks.length) { mountOverlay(); startPolling(); }
-        else if (STATE.words.length) { rebuildChunksForLayout(); startPolling(); }
-        else if (STATE.asrLang && !STATE.triggered) waitForPlayerThenTrigger();
-      } else {
-        if (STATE.pollId) { clearInterval(STATE.pollId); STATE.pollId = null; }
-        if (STATE.overlay) {
-          if (STATE.overlayText) {
-            STATE.overlayText.textContent = '';
-          }
-          STATE.overlay.dataset.empty = '1';
-        }
-        if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
-      }
-      updateButton();
-    });
-    const settings = right.querySelector('.ytp-settings-button');
-    if (settings && settings.parentNode) settings.parentNode.insertBefore(btn, settings);
-    else right.prepend(btn);
-    STATE.button = btn;
-    updateButton();
-  }
-
-  function updateButton() {
-    if (!STATE.button) return;
-    const b = STATE.button;
-    b.dataset.status  = STATE.statusMode;
-    b.dataset.enabled = STATE.enabled ? '1' : '0';
-    const labels = {
-      idle:        'Ketuvia: waiting for video',
-      loading:     'Ketuvia: loading captions',
-      active:      'Ketuvia is on (click to turn off)',
-      unavailable: 'Ketuvia: no auto-captions on this video',
-      error:       'Ketuvia: failed to load captions',
-    };
-    b.title = (STATE.enabled ? '' : '(disabled) ') + (labels[STATE.statusMode] || '');
+    if (mode === 'error' && STATE.enabled) {
+      mountOverlay();
+      flashOverlay('Ketuvia: failed to load captions');
+    }
   }
 })();

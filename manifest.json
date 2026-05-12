@@ -11,7 +11,8 @@
   },
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "storage"
   ],
   "host_permissions": [
     "*://www.youtube.com/*",
@@ -26,6 +27,16 @@
     "default_title": "Ketuvia"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://m.youtube.com/*"
+      ],
+      "js": ["storage-bridge.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED",
+      "all_frames": false
+    },
     {
       "matches": [
         "*://www.youtube.com/*",

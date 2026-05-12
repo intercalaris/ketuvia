@@ -36,7 +36,7 @@
 
 body {
   margin: 0;
-  width: 234px;
+  width: 274px;
   color: #e8e6dc;
   background: #20211d;
   font: 12px/1.2 system-ui, sans-serif;
@@ -46,9 +46,8 @@ main {
   padding: 8px;
 }
 
-.font-setting,
-.setting,
-.position-setting,
+.mini-setting,
+.ketuvia-setting,
 .caps-row,
 .debug-row {
   display: flex;
@@ -57,19 +56,81 @@ main {
   gap: 10px;
 }
 
-.setting + .setting,
-.font-setting,
-.caps-row,
-.position-setting,
-#reset {
+.top-row,
+.control-row,
+.font-position-row {
   margin-top: 7px;
+}
+
+.top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.control-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.mini-setting {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 4px;
+}
+
+.lines-setting {
+  width: 74px;
+}
+
+.shade-setting {
+  width: 118px;
+}
+
+.caps-setting {
+  width: 58px;
+}
+
+.ketuvia-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.caps-row {
+  gap: 7px;
+}
+
+.font-position-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.font-setting,
+.position-setting {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 4px;
+}
+
+.font-setting > span,
+.position-setting > span {
+  text-align: center;
+  line-height: 1;
 }
 
 .font-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 3px;
-  width: 136px;
+  width: 124px;
 }
 
 .font-list button {
@@ -80,7 +141,7 @@ main {
   border-radius: 6px;
   color: #c9c7bc;
   background: #34352f;
-  font-size: 11px;
+  font-size: 10.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -141,6 +202,33 @@ main {
   width: 38px;
 }
 
+.ketuvia-segments button {
+  width: 34px;
+}
+
+.font-size-segments {
+  align-items: baseline;
+  margin-bottom: 3px;
+  width: max-content;
+}
+
+.font-size-segments button {
+  line-height: 1;
+  padding-top: 4px;
+}
+
+.font-size-segments button[data-value="small"] {
+  font-size: 9px;
+}
+
+.font-size-segments button[data-value="medium"] {
+  font-size: 12px;
+}
+
+.font-size-segments button[data-value="large"] {
+  font-size: 15px;
+}
+
 .segments button[data-active="1"] {
   color: #161713;
   background: #d8d6ca;
@@ -148,17 +236,18 @@ main {
 
 .position-grid {
   display: grid;
-  grid-template-columns: repeat(3, 44px);
-  grid-auto-rows: 11px;
+  grid-template-columns: repeat(3, 36px);
+  grid-template-rows: repeat(7, 1fr);
   gap: 2px;
+  height: 101px;
   padding: 2px;
   border-radius: 7px;
   background: #2b2c27;
 }
 
 .position-grid button {
-  width: 44px;
-  height: 11px;
+  width: 36px;
+  height: 100%;
   padding: 0;
   border: 0;
   border-radius: 2px;
@@ -175,13 +264,14 @@ main {
 }
 
 #reset {
-  width: 100%;
-  height: 22px;
+  width: 56px;
+  height: 20px;
   border: 0;
   border-radius: 6px;
-  color: #c9c7bc;
+  color: #aaa89e;
   background: #2b2c27;
   font: inherit;
+  font-size: 11px;
   cursor: pointer;
 }
 
