@@ -473,10 +473,6 @@
       '--rechunk-font-feature-settings',
       STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal'
     );
-    node.style.setProperty(
-      '--rechunk-font-variant-ligatures',
-      STATE.settings.font === 'cascadia' ? 'none' : 'normal'
-    );
     const y = Number.parseFloat(position.y);
     const anchorTop = y <= 8;
     const anchorBottom = y >= 94;
