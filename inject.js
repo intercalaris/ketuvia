@@ -26,9 +26,11 @@
     minFontPx:      16,
     maxFontPx:      32,
     lineHeight:    1.4,
+    rebuildYieldMs: 50,
   };
 
-  const SETTINGS_STORAGE_KEY = 'ketuviaSettings';
+  const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
+  const ENABLED_STORAGE_KEY   = 'ketuviaEnabled';
   const DEFAULT_SETTINGS = {
     targetLines: 2,
     textSize: 'medium',
@@ -54,6 +56,14 @@
     average: '"Average Sans", system-ui, sans-serif',
     roboto: '"Roboto", system-ui, sans-serif',
     bona: '"Bona Nova", Georgia, serif',
+  };
+  const FONT_LOAD_FAMILIES = {
+    atkinson: '"Atkinson Hyperlegible"',
+    cascadia: '"Cascadia Code"',
+    noto: '"Noto Sans"',
+    average: '"Average Sans"',
+    roboto: '"Roboto"',
+    bona: '"Bona Nova"',
   };
   const OVERLAY_POSITIONS = {
     'left-top': { x: 'left', y: '8%' },
@@ -134,7 +144,12 @@
   });
 
   const STATE = {
-    enabled:    true,
+    enabled: (() => {
+      try {
+        const val = window.localStorage.getItem(ENABLED_STORAGE_KEY);
+        return val === null ? true : val !== 'false';
+      } catch { return true; }
+    })(),
     videoId:    null,
     asrLang:    null,
     words:      [],
@@ -156,11 +171,14 @@
     navRetryUntil: 0,
     triggerRetryId: null,
     triggerAttempts: 0,
+    fontLoadRequestId: 0,
+    chunkBuildRequestId: 0,
     debugChunks: [],
     settings: readSettings(),
   };
 
   function applySettings(nextSettings) {
+    const previousSettings = STATE.settings;
     STATE.settings = normalizeSettings(nextSettings);
     window.__ketuviaSettings = { ...STATE.settings };
 
@@ -168,7 +186,20 @@
       window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(STATE.settings));
     } catch {}
 
-    rebuildChunksForLayout();
+    const needsRebuild =
+      previousSettings.targetLines !== STATE.settings.targetLines ||
+      previousSettings.textSize !== STATE.settings.textSize ||
+      previousSettings.font !== STATE.settings.font ||
+      previousSettings.allCaps !== STATE.settings.allCaps;
+
+    if (needsRebuild && previousSettings.font !== STATE.settings.font) {
+      rebuildChunksAfterFontReady();
+    } else if (needsRebuild) {
+      rebuildChunksForLayout();
+    } else {
+      mountOverlay();
+    }
+
     renderCurrentCaption(true);
 
     return { ...STATE.settings };
@@ -214,25 +245,22 @@
     };
   }
 
+  function normalizeCaptionText(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function appendCaptionText(base, segment) {
+    const text = normalizeCaptionText(segment);
+    if (!text) return base;
+    return base ? base + ' ' + text : text;
+  }
+
   function joinWords(words) {
     let text = '';
-
     for (let i = 0; i < words.length; i++) {
-      const seg = words[i].text;
-
-      if (i === 0) {
-        text = seg;
-        continue;
-      }
-
-      if (!text.endsWith(' ') && !seg.startsWith(' ')) {
-        text += ' ';
-      }
-
-      text += seg;
+      text = appendCaptionText(text, words[i].text);
     }
-
-    return text.replace(/\s+/g, ' ').trim();
+    return text;
   }
 
   function applyTextCase(text) {
@@ -453,6 +481,7 @@
       o.setAttribute('aria-atomic', 'true');
       const text = document.createElement('div');
       text.className = 'rechunk-text';
+      text.dir = 'auto';
       o.appendChild(text);
       player.appendChild(o);
       STATE.overlay = o;
@@ -464,6 +493,7 @@
       m.id = 'rechunk-measurer';
       const text = document.createElement('div');
       text.className = 'rechunk-text';
+      text.dir = 'auto';
       m.appendChild(text);
       player.appendChild(m);
       STATE.measurer = m;
@@ -514,23 +544,47 @@
     );
   }
 
-  function rebuildChunksForLayout() {
+  async function waitForCurrentFont(layout) {
+    if (!document.fonts?.load || !layout) return;
+
+    const family = FONT_LOAD_FAMILIES[STATE.settings.font];
+    if (!family) return;
+
+    const size = Math.max(1, Math.round(layout.fontSizePx || CFG.maxFontPx));
+    await document.fonts.load(`400 ${size}px ${family}`);
+  }
+
+  function rebuildChunksAfterFontReady() {
     const player = mountOverlay();
     if (!player || !STATE.words.length) return;
 
-    const chunkResult = chunkWords(STATE.words, getRuntimeConfig());
+    const requestId = ++STATE.fontLoadRequestId;
+    const layout = STATE.layout;
+
+    waitForCurrentFont(layout).finally(() => {
+      if (requestId !== STATE.fontLoadRequestId) return;
+      rebuildChunksForLayout();
+    });
+  }
+
+  function yieldToBrowser() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  async function rebuildChunksForLayout() {
+    const player = mountOverlay();
+    if (!player || !STATE.words.length) return;
+
+    const requestId = ++STATE.chunkBuildRequestId;
+    const chunkResult = await chunkWords(STATE.words, getRuntimeConfig(), requestId);
+    if (chunkResult === null || requestId !== STATE.chunkBuildRequestId) return;
+
     STATE.chunks = chunkResult.chunks;
     STATE.debugChunks = chunkResult.debugChunks;
     log('rebuilt ' + STATE.chunks.length + ' chunks for layout width=' + STATE.layout.textWidthPx);
     logChunkBuildSummary();
 
-    if (STATE.lastText && STATE.overlay) {
-      if (STATE.overlayText) {
-        STATE.overlayText.textContent = '';
-      }
-      STATE.overlay.dataset.empty = '1';
-      STATE.lastText = null;
-    }
+    renderCurrentCaption(true);
   }
 
   function classifyBreakChar(text) {
@@ -760,14 +814,12 @@
       setStatus('error'); return;
     }
     STATE.words = words;
+    clearTriggerRetry();
+    if (!STATE.enabled) return;
     mountOverlay();
-    const chunkResult = chunkWords(words, getRuntimeConfig());
-    STATE.chunks = chunkResult.chunks;
-    STATE.debugChunks = chunkResult.debugChunks;
-    log('built ' + STATE.chunks.length + ' chunks from ' + words.length + ' words');
-    logChunkBuildSummary();
     setStatus('active');
     startPolling();
+    rebuildChunksForLayout();
   }
 
   function currentVideoId() {
@@ -1012,21 +1064,21 @@
     return out;
   }
 
-function chunkWords(words, cfg) {
+async function chunkWords(words, cfg, requestId) {
   const chunks = [];
     const debugChunks = [];
     const shouldDebug = DEBUG.enabled;
   if (!words.length) return { chunks, debugChunks };
+  let nextYieldAt = performance.now() + cfg.rebuildYieldMs;
 
   const pushChunk = (startIndex, endIndexExclusive, meta) => {
     if (endIndexExclusive <= startIndex) return;
 
-    const slice = words.slice(startIndex, endIndexExclusive);
-    const text = joinWords(slice);
+    const text = meta.text || joinWords(words.slice(startIndex, endIndexExclusive));
     if (!text) return;
 
-    const startMs = slice[0].start;
-    const lastWordStart = slice[slice.length - 1].start;
+    const startMs = words[startIndex].start;
+    const lastWordStart = words[endIndexExclusive - 1].start;
     const nextStart = words[endIndexExclusive]?.start;
 
     let endMs =
@@ -1074,18 +1126,21 @@ function chunkWords(words, cfg) {
     let reason = 'unknown';
     let firstGoodPunctuationEnd = -1;
     let firstGoodPunctuationLayout = null;
+    let firstGoodPunctuationText = '';
     let lastFitEnd = start + 1;
     let lastFitLayout = null;
+    let lastFitText = '';
+    let chosenText = '';
     const candidateDebug = shouldDebug ? [] : null;
+    let text = '';
 
     for (let end = start + 1; end <= words.length; end++) {
-      const slice = words.slice(start, end);
-      const text = joinWords(slice);
+      text = appendCaptionText(text, words[end - 1].text);
       const layout = measureTextLayout(text);
-      const currentWord = slice[slice.length - 1];
+      const currentWord = words[end - 1];
       const nextWord = words[end];
       const gapAfterMs = nextWord ? nextWord.start - currentWord.start : 0;
-      const durationMs = currentWord.start - slice[0].start;
+      const durationMs = currentWord.start - words[start].start;
       const breaks = classifyBreakChar(currentWord.text);
 
       if (layout.lineCount > cfg.targetLines) {
@@ -1099,6 +1154,10 @@ function chunkWords(words, cfg) {
             : lastFitEnd;
         chosenLayout =
           firstGoodPunctuationLayout || lastFitLayout;
+        chosenText =
+          firstGoodPunctuationEnd > start
+            ? firstGoodPunctuationText
+            : lastFitText;
         if (shouldDebug) {
           candidateDebug.push({
             endWord: end - 1,
@@ -1119,6 +1178,7 @@ function chunkWords(words, cfg) {
 
       lastFitEnd = end;
       lastFitLayout = layout;
+      lastFitText = text;
 
       if (shouldDebug) {
         candidateDebug.push({
@@ -1142,9 +1202,11 @@ function chunkWords(words, cfg) {
       if (hasPunctuation && hasMinimumFill) {
         firstGoodPunctuationEnd = end;
         firstGoodPunctuationLayout = layout;
+        firstGoodPunctuationText = text;
         reason = 'punctuation_after_min_fill';
         chosenEnd = end;
         chosenLayout = layout;
+        chosenText = text;
         break;
       }
 
@@ -1155,6 +1217,15 @@ function chunkWords(words, cfg) {
             : 'hard_pause_before_min_fill';
         chosenEnd = end;
         chosenLayout = layout;
+        chosenText = text;
+        break;
+      }
+
+      if (nextWord && /^\s*(>>|<<)/.test(nextWord.text)) {
+        reason = 'speaker_change';
+        chosenEnd = end;
+        chosenLayout = layout;
+        chosenText = text;
         break;
       }
 
@@ -1169,6 +1240,10 @@ function chunkWords(words, cfg) {
             : end;
         chosenLayout =
           firstGoodPunctuationLayout || layout;
+        chosenText =
+          firstGoodPunctuationEnd > start
+            ? firstGoodPunctuationText
+            : text;
         break;
       }
     }
@@ -1180,11 +1255,13 @@ function chunkWords(words, cfg) {
         lastFitLayout && !hasEnoughTextForPunctuation(lastFitLayout, cfg)
           ? 'end_of_captions_before_min_fill'
           : 'end_of_captions_last_fit';
+      chosenText = lastFitText;
     }
 
     if (chosenEnd <= start) {
       chosenEnd = Math.min(start + 1, words.length);
-      chosenLayout = measureTextLayout(joinWords(words.slice(start, chosenEnd)));
+      chosenText = joinWords(words.slice(start, chosenEnd));
+      chosenLayout = measureTextLayout(chosenText);
       reason = 'forced_single_word';
     }
 
@@ -1192,8 +1269,15 @@ function chunkWords(words, cfg) {
       layout: chosenLayout || { lineCount: 0, fillRatio: 0, lastLineFill: 0 },
       reason,
       candidates: shouldDebug ? candidateDebug : null,
+      text: chosenText,
     });
     start = chosenEnd;
+
+    if (performance.now() >= nextYieldAt) {
+      await yieldToBrowser();
+      nextYieldAt = performance.now() + cfg.rebuildYieldMs;
+      if (STATE.chunkBuildRequestId !== requestId) return null;
+    }
   }
 
   return { chunks, debugChunks };
@@ -1304,8 +1388,10 @@ function chunkWords(words, cfg) {
     btn.textContent = 'CC+';
     btn.addEventListener('click', () => {
       STATE.enabled = !STATE.enabled;
+      try { window.localStorage.setItem(ENABLED_STORAGE_KEY, String(STATE.enabled)); } catch {}
       if (STATE.enabled) {
         if (STATE.chunks.length) { mountOverlay(); startPolling(); }
+        else if (STATE.words.length) { rebuildChunksForLayout(); startPolling(); }
         else if (STATE.asrLang && !STATE.triggered) waitForPlayerThenTrigger();
       } else {
         if (STATE.pollId) { clearInterval(STATE.pollId); STATE.pollId = null; }

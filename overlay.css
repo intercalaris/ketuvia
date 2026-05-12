@@ -89,7 +89,6 @@
   transform: translateX(-50%);
   width: min(var(--rechunk-text-width), calc(100% - 32px));
   min-width: 0;
-  min-height: calc(var(--rechunk-font-size) * var(--rechunk-line-height) * var(--rechunk-target-lines));
   padding: 2px 8px;
   z-index: 60;
   pointer-events: none;
