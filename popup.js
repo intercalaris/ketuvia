@@ -108,7 +108,7 @@ async function runInTab(payload = {}) {
 function renderSettings(settings) {
   const normalized = normalizeSettings(settings);
 
-  document.querySelectorAll('.segments').forEach(group => {
+  document.querySelectorAll('.segments:not(.ketuvia-segments)').forEach(group => {
     const setting = group.dataset.setting;
     group.querySelectorAll('button').forEach(button => {
       button.dataset.active =
@@ -144,7 +144,7 @@ async function syncFromTab() {
   renderSettings(result.settings);
 }
 
-document.querySelectorAll('.segments button').forEach(button => {
+document.querySelectorAll('.segments:not(.ketuvia-segments) button').forEach(button => {
   button.addEventListener('click', async () => {
     const group = button.closest('.segments');
     const next = normalizeSettings({

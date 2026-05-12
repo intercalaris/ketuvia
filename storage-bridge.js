@@ -5,7 +5,7 @@
 
   function syncEnabled(enabled) {
     document.documentElement.dataset.ketuviaEnabled = enabled ? '1' : '0';
-    window.dispatchEvent(new Event('ketuvia-enabled-sync'));
+    document.documentElement.dispatchEvent(new Event('ketuvia-enabled-sync'));
   }
 
   chrome.storage.local.get({ [ENABLED_STORAGE_KEY]: true }, items => {

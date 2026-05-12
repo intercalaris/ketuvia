@@ -217,7 +217,7 @@
     }
   }
 
-  window.addEventListener('ketuvia-enabled-sync', () => {
+  document.documentElement.addEventListener('ketuvia-enabled-sync', () => {
     setEnabled(document.documentElement.dataset.ketuviaEnabled !== '0');
   });
 
@@ -1121,10 +1121,65 @@
 
 async function chunkWords(words, cfg, requestId) {
   const chunks = [];
-    const debugChunks = [];
-    const shouldDebug = DEBUG.enabled;
+  const debugChunks = [];
+  const shouldDebug = DEBUG.enabled;
   if (!words.length) return { chunks, debugChunks };
   let nextYieldAt = performance.now() + cfg.rebuildYieldMs;
+
+  // Precompute per-word canvas widths once so the hot loop never touches the DOM
+  // for overflow detection. Falls back to DOM measurement if canvas is unavailable.
+  const canvasW = STATE.layout?.textWidthPx ?? 0;
+  let cwWidths = null; // Float32Array indexed by word index
+  let cwSpaceW = 0;
+
+  if (canvasW > 0 && STATE.measurerText) {
+    try {
+      const style = window.getComputedStyle(STATE.measurerText);
+      // Use a document-created canvas so it shares the document's font registry
+      // and correctly loads custom @font-face fonts (OffscreenCanvas does not).
+      const cvs = document.createElement('canvas');
+      const ctx = cvs.getContext('2d');
+      // Build the font string from individual properties instead of the `font`
+      // shorthand. The shorthand returns an empty string when any font-variant-*
+      // sub-property is non-default (e.g. font-variant-ligatures:none on Cascadia),
+      // which silently resets the canvas to its default 10px sans-serif font.
+      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const lsPx = parseFloat(style.letterSpacing) || 0;
+      cwSpaceW = ctx.measureText(' ').width + lsPx;
+      // Store per-token widths per segment. Each segment may contain multiple
+      // space-separated tokens; we must wrap at each token boundary, not at
+      // segment boundaries, to match DOM word-wrap behaviour.
+      cwWidths = new Array(words.length);
+      for (let i = 0; i < words.length; i++) {
+        const norm = normalizeCaptionText(words[i].text);
+        const tokens = norm ? norm.split(' ').filter(Boolean) : [];
+        cwWidths[i] = tokens.map(tk => {
+          const t = getDisplayText(tk);
+          return t ? ctx.measureText(t).width + lsPx * t.length : 0;
+        });
+      }
+    } catch { cwWidths = null; }
+  }
+
+  // Simulate CSS word-wrapping using precomputed token widths. Returns null if canvas unavailable.
+  function fastLineInfo(from, to) {
+    if (!cwWidths) return null;
+    let x = 0, lines = 1, any = false;
+    for (let i = from; i < to; i++) {
+      for (const w of cwWidths[i]) {
+        if (!w) continue;
+        if (any && x + cwSpaceW + w > canvasW) { lines++; x = w; }
+        else { x += any ? cwSpaceW + w : w; any = true; }
+      }
+    }
+    return { lineCount: lines, lastLineFill: any ? Math.min(1, x / canvasW) : 0 };
+  }
+
+  function fastHasMinFill(from, to) {
+    const fi = fastLineInfo(from, to);
+    if (!fi) return null; // null = unknown, caller must fall back to DOM
+    return fi.lineCount >= Math.max(1, cfg.targetLines) && fi.lastLineFill >= cfg.minPunctuationLastLineFill;
+  }
 
   const pushChunk = (startIndex, endIndexExclusive, meta) => {
     if (endIndexExclusive <= startIndex) return;
@@ -1179,145 +1234,110 @@ async function chunkWords(words, cfg, requestId) {
     let chosenEnd = -1;
     let chosenLayout = null;
     let reason = 'unknown';
-    let firstGoodPunctuationEnd = -1;
-    let firstGoodPunctuationLayout = null;
-    let firstGoodPunctuationText = '';
-    let lastFitEnd = start + 1;
-    let lastFitLayout = null;
-    let lastFitText = '';
     let chosenText = '';
     const candidateDebug = shouldDebug ? [] : null;
-    let text = '';
 
-    for (let end = start + 1; end <= words.length; end++) {
+    // Binary search using canvas widths — zero DOM reflows.
+    // Falls back to DOM if canvas is unavailable.
+    let overflowAt = words.length + 1;
+    {
+      let lo = start + 1, hi = Math.min(words.length, start + cfg.maxWords);
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const lc = fastLineInfo(start, mid)?.lineCount
+          ?? measureTextLayout(joinWords(words.slice(start, mid))).lineCount;
+        if (lc > cfg.targetLines) { overflowAt = mid; hi = mid - 1; }
+        else lo = mid + 1;
+      }
+    }
+    const maxFit = overflowAt - 1;
+
+    // Linear scan for early breaks within the fit window.
+    // hasMinFill checks use canvas; only fall back to DOM when canvas unavailable.
+    let text = '';
+    let lastFitEnd = start;
+    let lastFitText = '';
+
+    for (let end = start + 1; end <= Math.min(maxFit, words.length); end++) {
       text = appendCaptionText(text, words[end - 1].text);
-      const layout = measureTextLayout(text);
       const currentWord = words[end - 1];
       const nextWord = words[end];
       const gapAfterMs = nextWord ? nextWord.start - currentWord.start : 0;
-      const durationMs = currentWord.start - words[start].start;
       const breaks = classifyBreakChar(currentWord.text);
-
-      if (layout.lineCount > cfg.targetLines) {
-        reason =
-          firstGoodPunctuationEnd > start
-            ? 'punctuation_after_min_fill_before_overflow'
-            : 'last_word_that_fits_before_overflow';
-        chosenEnd =
-          firstGoodPunctuationEnd > start
-            ? firstGoodPunctuationEnd
-            : lastFitEnd;
-        chosenLayout =
-          firstGoodPunctuationLayout || lastFitLayout;
-        chosenText =
-          firstGoodPunctuationEnd > start
-            ? firstGoodPunctuationText
-            : lastFitText;
-        if (shouldDebug) {
-          candidateDebug.push({
-            endWord: end - 1,
-            lines: layout.lineCount,
-            rawRects: layout.rawRectCount,
-            fill: Number(layout.fillRatio.toFixed(3)),
-            lastLineFill: Number(layout.lastLineFill.toFixed(3)),
-            overflow: true,
-            pauseAfter: gapAfterMs >= cfg.hardPauseMs,
-            durationMs,
-            terminal: breaks.terminal,
-            clause: breaks.clause,
-            text,
-          });
-        }
-        break;
-      }
-
       lastFitEnd = end;
-      lastFitLayout = layout;
       lastFitText = text;
 
-      if (shouldDebug) {
-        candidateDebug.push({
-          endWord: end - 1,
-          lines: layout.lineCount,
-          rawRects: layout.rawRectCount,
-          fill: Number(layout.fillRatio.toFixed(3)),
-          lastLineFill: Number(layout.lastLineFill.toFixed(3)),
-          overflow: false,
-          pauseAfter: gapAfterMs >= cfg.hardPauseMs,
-          durationMs,
-          terminal: breaks.terminal,
-          clause: breaks.clause,
-          text,
-        });
-      }
-
-      const hasPunctuation = breaks.terminal || breaks.clause;
-      const hasMinimumFill = hasEnoughTextForPunctuation(layout, cfg);
-
-      if (hasPunctuation && hasMinimumFill) {
-        firstGoodPunctuationEnd = end;
-        firstGoodPunctuationLayout = layout;
-        firstGoodPunctuationText = text;
-        reason = 'punctuation_after_min_fill';
-        chosenEnd = end;
-        chosenLayout = layout;
-        chosenText = text;
+      if (nextWord && /^\s*(>>|<<)/.test(nextWord.text)) {
+        reason = 'speaker_change';
+        chosenEnd = end; chosenText = text;
         break;
       }
 
       if (gapAfterMs >= cfg.hardPauseMs) {
-        reason =
-          hasMinimumFill
-            ? 'hard_pause_after_min_fill'
-            : 'hard_pause_before_min_fill';
-        chosenEnd = end;
-        chosenLayout = layout;
-        chosenText = text;
+        const hasMinFill = fastHasMinFill(start, end) ?? hasEnoughTextForPunctuation(measureTextLayout(text), cfg);
+        reason = hasMinFill ? 'hard_pause_after_min_fill' : 'hard_pause_before_min_fill';
+        chosenEnd = end; chosenText = text;
         break;
       }
 
-      if (nextWord && /^\s*(>>|<<)/.test(nextWord.text)) {
-        reason = 'speaker_change';
-        chosenEnd = end;
-        chosenLayout = layout;
-        chosenText = text;
-        break;
+      if (breaks.terminal || breaks.clause) {
+        const hasMinFill = fastHasMinFill(start, end) ?? hasEnoughTextForPunctuation(measureTextLayout(text), cfg);
+        if (hasMinFill) {
+          reason = 'punctuation_after_min_fill';
+          chosenEnd = end; chosenText = text;
+          break;
+        }
       }
 
       if (end - start >= cfg.maxWords) {
-        reason =
-          firstGoodPunctuationEnd > start
-            ? 'punctuation_after_min_fill_before_max_words'
-            : 'max_words_last_fit';
-        chosenEnd =
-          firstGoodPunctuationEnd > start
-            ? firstGoodPunctuationEnd
-            : end;
-        chosenLayout =
-          firstGoodPunctuationLayout || layout;
-        chosenText =
-          firstGoodPunctuationEnd > start
-            ? firstGoodPunctuationText
-            : text;
+        reason = 'max_words_last_fit';
+        chosenEnd = end; chosenText = text;
         break;
       }
     }
 
+    // No early break: use overflow boundary or end of captions.
     if (chosenEnd <= start) {
-      chosenEnd = lastFitEnd;
-      chosenLayout = lastFitLayout;
-      reason =
-        lastFitLayout && !hasEnoughTextForPunctuation(lastFitLayout, cfg)
+      if (overflowAt <= words.length && maxFit > start) {
+        const t = lastFitEnd === maxFit ? lastFitText : joinWords(words.slice(start, maxFit));
+        reason = 'last_word_that_fits_before_overflow';
+        chosenEnd = maxFit; chosenText = t;
+      } else if (lastFitEnd > start) {
+        const fi = fastLineInfo(start, lastFitEnd);
+        const fakeLayout = fi ?? measureTextLayout(lastFitText);
+        reason = !hasEnoughTextForPunctuation(fakeLayout, cfg)
           ? 'end_of_captions_before_min_fill'
           : 'end_of_captions_last_fit';
-      chosenText = lastFitText;
+        chosenEnd = lastFitEnd; chosenText = lastFitText;
+      }
     }
 
     if (chosenEnd <= start) {
       chosenEnd = Math.min(start + 1, words.length);
       chosenText = joinWords(words.slice(start, chosenEnd));
-      chosenLayout = measureTextLayout(chosenText);
       reason = 'forced_single_word';
+    }
+
+    // Resolve final layout.
+    // Overflow chunks: one DOM measurement to verify canvas wasn't optimistic.
+    // Debug mode: DOM for accurate metrics.
+    // Otherwise: use canvas estimates (no DOM reflow needed).
+    if (reason === 'last_word_that_fits_before_overflow') {
+      const verify = measureTextLayout(chosenText);
+      if (verify.lineCount > cfg.targetLines && chosenEnd > start + 1) {
+        chosenEnd--;
+        chosenText = joinWords(words.slice(start, chosenEnd));
+        chosenLayout = measureTextLayout(chosenText);
+      } else {
+        chosenLayout = verify;
+      }
+    } else if (shouldDebug) {
+      chosenLayout = measureTextLayout(chosenText);
+    } else {
+      const fi = fastLineInfo(start, chosenEnd);
+      chosenLayout = fi
+        ? { lineCount: fi.lineCount, lastLineFill: fi.lastLineFill, fillRatio: 0, heightLineCount: fi.lineCount, maxLineCount: fi.lineCount, rawRectCount: fi.lineCount, clientHeight: 0, scrollHeight: 0, offsetHeight: 0, lineHeightPx: 0 }
+        : measureTextLayout(chosenText);
     }
 
     pushChunk(start, chosenEnd, {
