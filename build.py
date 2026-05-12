@@ -9,7 +9,7 @@ DIST.mkdir(exist_ok=True)
 with open(ROOT / 'manifest.json', encoding='utf-8') as f:
     version = json.load(f)['version']
 
-SOURCE_FILES = ['manifest.json', 'inject.js', 'overlay.css', 'popup.html', 'popup.css', 'popup.js']
+SOURCE_FILES = ['manifest.json', 'inject.js', 'storage-bridge.js', 'overlay.css', 'popup.html', 'popup.css', 'popup.js']
 SOURCE_DIRS  = ['icons', 'fonts']
 
 FIREFOX_ADDON_ID = 'ketuvia@intercalaris'
