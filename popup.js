@@ -13,6 +13,8 @@ const ketuviaOff = document.getElementById('ketuvia-off');
 const capsToggle = document.getElementById('caps-toggle');
 const reset = document.getElementById('reset');
 const ENABLED_STORAGE_KEY = 'ketuviaEnabled';
+const DEBUG_STORAGE_KEY = 'ketuviaDebug';
+const debugStorage = chrome.storage.session ?? chrome.storage.local;
 
 function normalizeSettings(settings) {
   const textSize = ['small', 'medium', 'large'].includes(settings?.textSize)
@@ -137,10 +139,11 @@ function renderEnabled(enabled) {
 async function syncFromTab() {
   renderEnabled(await getGlobalEnabled());
 
+  const items = await debugStorage.get({ [DEBUG_STORAGE_KEY]: false });
+  toggle.checked = items[DEBUG_STORAGE_KEY] === true;
+
   const result = await runInTab();
   if (!result) return;
-
-  toggle.checked = result.debug;
   renderSettings(result.settings);
 }
 
@@ -208,10 +211,8 @@ reset.addEventListener('click', async () => {
   toggle.checked = false;
   renderEnabled(true);
   await setGlobalEnabled(true);
-  const result = await runInTab({ settings: DEFAULT_SETTINGS, debug: false });
-  if (result) {
-    toggle.checked = result.debug;
-  }
+  await debugStorage.set({ [DEBUG_STORAGE_KEY]: false });
+  const result = await runInTab({ settings: DEFAULT_SETTINGS });
   if (result?.settings) {
     renderSettings(result.settings);
   }
@@ -236,8 +237,7 @@ capsToggle.addEventListener('change', async () => {
 
 toggle.addEventListener('change', async () => {
   try {
-    const result = await runInTab({ debug: toggle.checked });
-    if (result) toggle.checked = result.debug;
+    await debugStorage.set({ [DEBUG_STORAGE_KEY]: toggle.checked });
   } catch {
     toggle.checked = !toggle.checked;
   }

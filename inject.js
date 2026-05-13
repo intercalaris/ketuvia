@@ -12,7 +12,9 @@
     maxWords:        40,
     maxDurMs:      5200,
     minDurMs:      1800,
-    lookaheadMs:   1000,
+    longPauseThresholdMs: 6000,
+    longPauseHoldMs: 5500,
+    lookaheadMs:    300,
     pollMs:         100,
     navRetryMs:     250,
     navRetryForMs: 8000,
@@ -128,13 +130,127 @@
   const DEBUG = {
     enabled: false,
     maxChunkLogs: 80,
+    maxRecords: 1500,
   };
 
   window.__ketuviaDebugEnabled = false;
+  window.__ketuviaLastTimedtext = null;
+  window.__ketuviaDebugLog = [];
+
+  function safeFilenamePart(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/['"]/g, '')
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+  }
+
+  function getDebugFileId() {
+    const title = document.title.replace(/\s+-\s+YouTube\s*$/i, '').trim();
+    const titlePart = safeFilenamePart(title.split(/\s+/).slice(0, 3).join(' ')) || 'youtube-video';
+    const videoId = safeFilenamePart(currentVideoId() || STATE.videoId || window.__ketuviaLastTimedtext?.videoId || 'unknown');
+    const datePart = new Date().toISOString().slice(0, 10);
+    return `${titlePart}-${videoId}-${datePart}`;
+  }
+
+  function downloadTextFile(filename, text, type) {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function pushTimingRecord(type, detail = {}) {
+    const records = window.__ketuviaDebugLog;
+    records.push({
+      at: new Date().toISOString(),
+      tMs: Math.round(performance.now()),
+      type,
+      ...detail,
+    });
+    if (records.length > DEBUG.maxRecords) {
+      records.splice(0, records.length - DEBUG.maxRecords);
+    }
+  }
+
+  function pushDebugRecord(type, detail = {}) {
+    if (!DEBUG.enabled) return;
+    const records = window.__ketuviaDebugLog;
+    records.push({
+      at: new Date().toISOString(),
+      tMs: Math.round(performance.now()),
+      type,
+      ...detail,
+    });
+    if (records.length > DEBUG.maxRecords) {
+      records.splice(0, records.length - DEBUG.maxRecords);
+    }
+  }
+
+  function buildKetuviaLogText(id) {
+    const snapshot = {
+      id,
+      generatedAt: new Date().toISOString(),
+      pageUrl: location.href,
+      title: document.title.replace(/\s+-\s+YouTube\s*$/i, '').trim(),
+      videoId: currentVideoId() || STATE.videoId || null,
+      enabled: STATE.enabled,
+      debugEnabled: DEBUG.enabled,
+      nativeCaptionsEnabled: areNativeCaptionsEnabled(),
+      statusMode: STATE.statusMode,
+      settings: STATE.settings,
+      wordCount: STATE.words.length,
+      chunkCount: STATE.chunks.length,
+      asrLang: STATE.asrLang,
+      timedtextRequestCount: STATE.timedtextRequestCount,
+      timedtextResponseCount: STATE.timedtextResponseCount,
+      lastTimedtextRequest: STATE.lastTimedtextRequest,
+      lastTimedtextResponse: STATE.lastTimedtextResponse,
+      lastCaptionTrigger: STATE.lastCaptionTrigger,
+      lastCaptionTracks: STATE.lastCaptionTracks,
+      layout: STATE.layout,
+      chunks: STATE.chunks.slice(0, 120),
+    };
+
+    const lines = [
+      `ID ${id}`,
+      JSON.stringify({ snapshot }),
+      'records',
+      ...window.__ketuviaDebugLog.map(record => JSON.stringify(record)),
+    ];
+    return lines.join('\n') + '\n';
+  }
+
+  function downloadKetuviaDebugBundle() {
+    const id = getDebugFileId();
+    const raw = window.__ketuviaLastTimedtext?.text;
+    if (raw) {
+      downloadTextFile(`${id}-youtube-json.json`, raw, 'application/json');
+    } else {
+      console.warn('[Rechunk][Debug][RAW] no timedtext response captured yet');
+    }
+
+    downloadTextFile(`${id}-ketuvia-log.txt`, buildKetuviaLogText(id), 'text/plain');
+  }
+  window.__ketuviaDownloadTimedtext = downloadKetuviaDebugBundle;
+  window.ketuviaDownload = downloadKetuviaDebugBundle;
+  window.ketuvia = downloadKetuviaDebugBundle;
 
   window.addEventListener('ketuvia-debug-change', event => {
+    const wasEnabled = DEBUG.enabled;
     DEBUG.enabled = Boolean(event.detail?.enabled);
     window.__ketuviaDebugEnabled = DEBUG.enabled;
+    if (DEBUG.enabled && !wasEnabled) {
+      window.__ketuviaDebugLog = [];
+      pushDebugRecord('debug_enabled', {
+        videoId: currentVideoId() || STATE.videoId || null,
+        pageUrl: location.href,
+      });
+    }
     if (DEBUG.enabled && STATE.words.length) {
       rebuildChunksForLayout();
     } else {
@@ -164,6 +280,12 @@
     navRetryUntil: 0,
     triggerRetryId: null,
     triggerAttempts: 0,
+    timedtextRequestCount: 0,
+    timedtextResponseCount: 0,
+    lastTimedtextRequest: null,
+    lastTimedtextResponse: null,
+    lastCaptionTrigger: null,
+    lastCaptionTracks: null,
     fontLoadRequestId: 0,
     chunkBuildRequestId: 0,
     debugChunks: [],
@@ -201,9 +323,20 @@
   function setEnabled(enabled) {
     STATE.enabled = Boolean(enabled);
     window.__ketuviaEnabled = STATE.enabled;
+    captionLoadDebug('set_enabled', {
+      requestedEnabled: Boolean(enabled),
+      wordsLength: STATE.words.length,
+      chunksLength: STATE.chunks.length,
+      hasAsrLang: Boolean(STATE.asrLang),
+      triggered: STATE.triggered,
+    });
 
     if (STATE.enabled) {
       if (!areNativeCaptionsEnabled()) {
+        captionLoadDebug('set_enabled_waiting_for_native_cc', {
+          wordsLength: STATE.words.length,
+          chunksLength: STATE.chunks.length,
+        });
         clearKetuviaOverlay();
         return;
       }
@@ -263,6 +396,7 @@
 
   const log = (...a) => {
     if (!DEBUG.enabled) return;
+    pushDebugRecord('log', { message: a.map(String).join(' ') });
     console.log(
       '[Rechunk]',
       new Date().toISOString(),
@@ -272,12 +406,30 @@
 
   const warn = (...a) => {
     if (!DEBUG.enabled) return;
+    pushDebugRecord('warn', { message: a.map(String).join(' ') });
     console.warn(
       '[Rechunk]',
       new Date().toISOString(),
       ...a
     );
   };
+
+  function captionLoadDebug(stage, detail = {}) {
+    if (!DEBUG.enabled) return;
+    const payload = {
+      stage,
+      videoId: STATE.videoId,
+      enabled: STATE.enabled,
+      nativeCaptionsEnabled: areNativeCaptionsEnabled(),
+      statusMode: STATE.statusMode,
+      triggerAttempts: STATE.triggerAttempts,
+      chunks: STATE.chunks.length,
+      words: STATE.words.length,
+      ...detail,
+    };
+    pushDebugRecord('caption_load', payload);
+    console.log('[Rechunk][Debug][CAPTION_LOAD]', JSON.stringify(payload));
+  }
 
   function clamp(n, min, max) {
     return Math.min(max, Math.max(min, n));
@@ -593,7 +745,11 @@
     if (!family) return;
 
     const size = Math.max(1, Math.round(layout.fontSizePx || CFG.maxFontPx));
-    await document.fonts.load(`400 ${size}px ${family}`);
+    const fontSpec = `400 ${size}px ${family}`;
+    pushTimingRecord('font_load_start', { fontSpec });
+    const t0 = performance.now();
+    await document.fonts.load(fontSpec);
+    pushTimingRecord('font_load_end', { fontSpec, durationMs: Math.round(performance.now() - t0) });
   }
 
   function rebuildChunksAfterFontReady() {
@@ -618,8 +774,16 @@
     if (!player || !STATE.words.length) return;
 
     const requestId = ++STATE.chunkBuildRequestId;
+    pushTimingRecord('chunk_build_start', { wordCount: STATE.words.length });
+    const t0 = performance.now();
     const chunkResult = await chunkWords(STATE.words, getRuntimeConfig(), requestId);
     if (chunkResult === null || requestId !== STATE.chunkBuildRequestId) return;
+
+    pushTimingRecord('chunk_build_end', {
+      wordCount: STATE.words.length,
+      chunkCount: chunkResult.chunks.length,
+      durationMs: Math.round(performance.now() - t0),
+    });
 
     STATE.chunks = chunkResult.chunks;
     STATE.debugChunks = chunkResult.debugChunks;
@@ -677,16 +841,18 @@
   function logChunkBuildSummary() {
     if (!DEBUG.enabled || !STATE.layout) return;
 
-    console.log('[Rechunk][Debug][BUILD]', JSON.stringify({
+    const buildPayload = {
       playerWidthPx: getPlayerElement()?.clientWidth || 0,
       targetLines: STATE.layout.targetLines,
       targetTextWidthPx: STATE.layout.textWidthPx,
       targetFontSizePx: STATE.layout.fontSizePx,
       targetLineHeight: STATE.layout.lineHeight,
       chunkCount: STATE.chunks.length,
-    }));
+    };
+    pushDebugRecord('build', buildPayload);
+    console.log('[Rechunk][Debug][BUILD]', JSON.stringify(buildPayload));
     STATE.debugChunks.slice(0, DEBUG.maxChunkLogs).forEach(chunk => {
-      console.log('[Rechunk][Debug][CHUNK]', JSON.stringify({
+      const chunkPayload = {
         idx: chunk.idx,
         words: `${chunk.startWord}-${chunk.endWord}`,
         measuredLines: chunk.measuredLineCount,
@@ -699,22 +865,40 @@
         measuredScrollHeight: chunk.measuredScrollHeight,
         measuredOffsetHeight: chunk.measuredOffsetHeight,
         measuredLineHeightPx: chunk.measuredLineHeightPx,
+        startMs: chunk.startMs,
+        endMs: chunk.endMs,
+        lastWordStartMs: chunk.lastWordStartMs,
+        nextStartMs: chunk.nextStartMs,
+        pauseAfterMs: chunk.pauseAfterMs,
+        longPauseHideAtMs: chunk.longPauseHideAtMs,
+        longPauseGapMs: chunk.longPauseGapMs,
+        lastWordEndMs: chunk.lastWordEndMs ?? null,
         reason: chunk.reason,
         text: chunk.text,
-      }));
+      };
+      pushDebugRecord('chunk', chunkPayload);
+      console.log('[Rechunk][Debug][CHUNK]', JSON.stringify(chunkPayload));
     });
   }
 
-  function logRenderedChunk(chunkIndex, chunk) {
+  function logRenderedChunk(chunkIndex, chunk, renderWindow) {
     if (!DEBUG.enabled || !chunk) return;
 
     const meta = STATE.debugChunks[chunkIndex];
     const rendered = snapshotOverlayMetrics();
 
-    console.log('[Rechunk][Debug][RENDER]', JSON.stringify({
+    const renderPayload = {
       chunkIndex,
       startMs: chunk.startMs,
       endMs: chunk.endMs,
+      lastWordStartMs: chunk.lastWordStartMs,
+      lastWordEndMs: chunk.lastWordEndMs ?? null,
+      nextStartMs: chunk.nextStartMs,
+      pauseAfterMs: chunk.pauseAfterMs,
+      longPauseHideAtMs: chunk.longPauseHideAtMs ?? null,
+      longPauseGapMs: chunk.longPauseGapMs ?? null,
+      windowEndMs: renderWindow?.windowEndMs ?? null,
+      windowEndReason: renderWindow?.windowEndReason ?? null,
       text: chunk.text,
       measuredLines: meta?.measuredLineCount ?? null,
       measuredHeightLines: meta?.measuredHeightLineCount ?? null,
@@ -741,13 +925,17 @@
       cssFontSize: rendered?.cssFontSize ?? null,
       cssLineHeight: rendered?.cssLineHeight ?? null,
       innerWidthPx: rendered?.innerWidthPx ?? null,
-    }));
+    };
+    pushDebugRecord('render', renderPayload);
+    console.log('[Rechunk][Debug][RENDER]', JSON.stringify(renderPayload));
     if (meta?.candidates?.length) {
       meta.candidates.forEach(candidate => {
-        console.log('[Rechunk][Debug][CANDIDATE]', JSON.stringify({
+        const candidatePayload = {
           chunkIndex,
           ...candidate,
-        }));
+        };
+        pushDebugRecord('candidate', candidatePayload);
+        console.log('[Rechunk][Debug][CANDIDATE]', JSON.stringify(candidatePayload));
       });
     }
   }
@@ -763,6 +951,29 @@
     let vid;
     try { vid = new URL(url).searchParams.get('v'); } catch { return; }
     if (!vid) return;
+    STATE.timedtextResponseCount += 1;
+    STATE.lastTimedtextResponse = {
+      vid,
+      length: text.length,
+      atMs: Math.round(performance.now()),
+    };
+    window.__ketuviaLastTimedtext = {
+      videoId: vid,
+      url,
+      receivedAt: new Date().toISOString(),
+      text,
+    };
+    pushDebugRecord('raw_stored', {
+      videoId: vid,
+      url,
+      length: text.length,
+    });
+    captionLoadDebug('timedtext_response', {
+      vid,
+      length: text.length,
+      responseCount: STATE.timedtextResponseCount,
+      preview: text.slice(0, 60),
+    });
     log('intercepted timedtext vid=' + vid + ' len=' + text.length);
     if (STATE.videoId && vid !== STATE.videoId) return;
     if (!STATE.videoId) STATE.videoId = vid;
@@ -779,7 +990,7 @@
 
   const _origFetch = window.fetch;
 
-    window.fetch = async function (input, init) {
+    window.fetch = function (input, init) {
       const url =
         typeof input === 'string'
           ? input
@@ -791,19 +1002,32 @@
 
       if (isTimedtext) {
         const newUrl = rewriteTimedtextUrl(url);
+        STATE.timedtextRequestCount += 1;
+        STATE.lastTimedtextRequest = {
+          transport: 'fetch',
+          originalUrl: url,
+          rewrittenUrl: newUrl,
+          atMs: Math.round(performance.now()),
+        };
+        captionLoadDebug('timedtext_request', {
+          transport: 'fetch',
+          requestCount: STATE.timedtextRequestCount,
+          originalFmt: (() => { try { return new URL(url).searchParams.get('fmt'); } catch { return null; } })(),
+          rewrittenFmt: (() => { try { return new URL(newUrl).searchParams.get('fmt'); } catch { return null; } })(),
+        });
 
         const req =
           typeof input === 'string'
             ? newUrl
             : new Request(newUrl, input);
 
-        const resp = await _origFetch.call(this, req, init);
-
-        resp.clone().text()
-          .then(t => onTimedtextBody(newUrl, t))
-          .catch(() => {});
-
-        return resp;
+        const p = _origFetch.call(this, req, init);
+        p.then(resp => {
+          resp.clone().text()
+            .then(t => onTimedtextBody(newUrl, t))
+            .catch(() => {});
+        });
+        return p;
       }
 
       return _origFetch.apply(this, arguments);
@@ -820,6 +1044,19 @@
       if (isTimedtext) {
         const newUrl = rewriteTimedtextUrl(url);
         this._rechunkUrl = newUrl;
+        STATE.timedtextRequestCount += 1;
+        STATE.lastTimedtextRequest = {
+          transport: 'xhr',
+          originalUrl: url,
+          rewrittenUrl: newUrl,
+          atMs: Math.round(performance.now()),
+        };
+        captionLoadDebug('timedtext_request', {
+          transport: 'xhr',
+          requestCount: STATE.timedtextRequestCount,
+          originalFmt: (() => { try { return new URL(url).searchParams.get('fmt'); } catch { return null; } })(),
+          rewrittenFmt: (() => { try { return new URL(newUrl).searchParams.get('fmt'); } catch { return null; } })(),
+        });
 
         return _XHROpen.call(
           this,
@@ -847,17 +1084,36 @@
     let data;
     try { data = JSON.parse(text); }
     catch (e) {
+      captionLoadDebug('timedtext_parse_failed', {
+        error: e.message,
+        length: text.length,
+        preview: text.slice(0, 120),
+      });
       warn('timedtext not JSON: ' + e.message + ' start=' + text.slice(0, 80));
       setStatus('error'); return;
     }
     const words = extractWords(data);
     if (!words.length) {
+      STATE.lastTimedtextResponse = {
+        ...(STATE.lastTimedtextResponse || {}),
+        zeroWords: true,
+        eventCount: (data.events || []).length,
+      };
       warn('zero words extracted. events=' + (data.events || []).length);
       setStatus('error'); return;
     }
     STATE.words = words;
     clearTriggerRetry();
+    captionLoadDebug('timedtext_parsed', {
+      eventCount: (data.events || []).length,
+      wordCount: words.length,
+      storedWordsLength: STATE.words.length,
+    });
     if (!STATE.enabled || !areNativeCaptionsEnabled()) {
+      captionLoadDebug('timedtext_stored_not_rendered', {
+        reason: !STATE.enabled ? 'ketuvia_disabled' : 'native_cc_off',
+        storedWordsLength: STATE.words.length,
+      });
       clearKetuviaOverlay();
       return;
     }
@@ -929,10 +1185,20 @@
       !STATE.enabled ||
       STATE.chunks.length ||
       !areNativeCaptionsEnabled()
-    ) return;
+    ) {
+      captionLoadDebug('trigger_skipped', {
+        hasVideoId: Boolean(STATE.videoId),
+        asrLang: STATE.asrLang,
+      });
+      return;
+    }
 
     const player = document.getElementById('movie_player');
     if (!player || typeof player.setOption !== 'function') {
+      captionLoadDebug('trigger_waiting_for_player', {
+        hasPlayer: Boolean(player),
+        hasSetOption: Boolean(player && typeof player.setOption === 'function'),
+      });
       clearTriggerRetry();
       STATE.triggerRetryId = setTimeout(() => {
         STATE.triggerRetryId = null;
@@ -946,6 +1212,7 @@
     }
 
     if (!isCaptionsApiReady(player)) {
+      captionLoadDebug('trigger_waiting_for_captions_api');
       clearTriggerRetry();
       STATE.triggerRetryId = setTimeout(() => {
         STATE.triggerRetryId = null;
@@ -962,13 +1229,27 @@
       ' lang=' +
       STATE.asrLang
     );
+    STATE.lastCaptionTrigger = {
+      attempt: STATE.triggerAttempts,
+      lang: STATE.asrLang,
+      atMs: Math.round(performance.now()),
+    };
+    captionLoadDebug('trigger_attempt', {
+      lang: STATE.asrLang,
+      captionsOptions: (() => {
+        try { return player.getOptions('captions'); } catch { return null; }
+      })(),
+    });
 
     let requested = false;
 
     try {
       player.setOption('captions', 'reload', true);
       requested = true;
-    } catch {}
+      captionLoadDebug('setOption_reload_ok');
+    } catch (e) {
+      captionLoadDebug('setOption_reload_failed', { error: e.message });
+    }
 
     if (STATE.statusMode !== 'loading') {
       setStatus('loading');
@@ -989,6 +1270,14 @@
         return;
       }
 
+      captionLoadDebug('trigger_failed_no_timedtext', {
+        lastCaptionTrigger: STATE.lastCaptionTrigger,
+        timedtextRequestCount: STATE.timedtextRequestCount,
+        timedtextResponseCount: STATE.timedtextResponseCount,
+        lastTimedtextRequest: STATE.lastTimedtextRequest,
+        lastTimedtextResponse: STATE.lastTimedtextResponse,
+        lastCaptionTracks: STATE.lastCaptionTracks,
+      });
       warn('timedtext not intercepted after ' + STATE.triggerAttempts + ' attempts');
       setStatus('error');
     }, CFG.triggerRetryMs);
@@ -1007,6 +1296,8 @@
 
     const tracks = readCaptionTracks();
     if (!tracks || !tracks.length) {
+      STATE.lastCaptionTracks = null;
+      captionLoadDebug('tracks_missing');
       setStatus('loading');
       scheduleNavRetry();
       return;
@@ -1015,6 +1306,17 @@
     clearNavRetry();
 
     const asr = tracks.find(t => t.kind === 'asr');
+    STATE.lastCaptionTracks = tracks.map(track => ({
+      kind: track.kind || null,
+      languageCode: track.languageCode || null,
+      name: track.name?.simpleText || track.name?.runs?.map(run => run.text).join('') || null,
+      hasBaseUrl: Boolean(track.baseUrl),
+    }));
+    captionLoadDebug('tracks_found', {
+      trackCount: tracks.length,
+      tracks: STATE.lastCaptionTracks,
+      selectedAsrLang: asr?.languageCode || null,
+    });
     if (!asr) {
       STATE.statusMode = 'unavailable'; return;
     }
@@ -1051,13 +1353,52 @@
     checkNavigation();
   }
   document.addEventListener('yt-navigate-start',  () => { if (STATE.videoId && currentVideoId() !== STATE.videoId) resetForNewVideo(); }, true);
-  document.addEventListener('yt-navigate-finish', () => setTimeout(checkNavigation, 0), true);
+  document.addEventListener('yt-navigate-finish', () => {
+    pushTimingRecord('navigate_finish', { videoId: currentVideoId() || null });
+    setTimeout(checkNavigation, 0);
+  }, true);
+
+  function getTextEventInfo(json3) {
+    const events = json3.events || [];
+    const textEvents = [];
+    let newlineEventCount = 0;
+
+    for (const [eventIndex, ev] of events.entries()) {
+      const segs = ev.segs || [];
+      if (!segs.length) continue;
+      const text = segs.map(seg => seg.utf8 || '').join('');
+      if (text === '\n') {
+        newlineEventCount += 1;
+        continue;
+      }
+      textEvents.push({ eventIndex, ev, text });
+    }
+
+    const singleSegmentEvents = textEvents.filter(item => (item.ev.segs || []).length === 1).length;
+    const timedWindowEvents = textEvents.filter(item => Object.hasOwn(item.ev, 'wWinId')).length;
+    const manualCaptionLike =
+      textEvents.length > 0 &&
+      newlineEventCount === 0 &&
+      timedWindowEvents === 0 &&
+      singleSegmentEvents / textEvents.length >= 0.9;
+
+    return {
+      events,
+      textEvents,
+      newlineEventCount,
+      sourceKind: manualCaptionLike ? 'manual_event_captions' : 'word_timed_captions',
+    };
+  }
 
   function extractWords(json3) {
     const out = [];
+    const eventInfo = getTextEventInfo(json3);
     const debug = DEBUG.enabled
       ? {
-          eventCount: (json3.events || []).length,
+          eventCount: eventInfo.events.length,
+          textEventCount: eventInfo.textEvents.length,
+          newlineEventCount: eventInfo.newlineEventCount,
+          sourceKind: eventInfo.sourceKind,
           inputSegCount: 0,
           outputTokenCount: 0,
           multiWordSegCount: 0,
@@ -1067,10 +1408,11 @@
         }
       : null;
     let lastStart = -1;
-    for (const [eventIndex, ev] of (json3.events || []).entries()) {
+    for (const [eventIndex, ev] of eventInfo.events.entries()) {
       if (!ev.segs) continue;
       const base = ev.tStartMs || 0;
       const eventDurationMs = ev.dDurationMs || 0;
+      const eventEndMs = base + eventDurationMs;
       for (const [segIndex, s] of ev.segs.entries()) {
         if (debug) debug.inputSegCount += 1;
         const text = s.utf8;
@@ -1083,7 +1425,14 @@
           if (debug) debug.skippedNonIncreasingStartCount += 1;
           continue;
         }
-        out.push({ start, text });
+        out.push({
+          start,
+          end: eventInfo.sourceKind === 'manual_event_captions' ? eventEndMs : null,
+          text,
+          eventIndex,
+          sourceKind: eventInfo.sourceKind,
+          preserveEventBoundary: eventInfo.sourceKind === 'manual_event_captions',
+        });
         if (debug) {
           const tokens = text.trim().split(/\s+/).filter(Boolean);
           if (tokens.length > 1) debug.multiWordSegCount += 1;
@@ -1107,6 +1456,7 @@
     }
     if (debug) {
       debug.outputTokenCount = out.length;
+      pushDebugRecord('extract', debug);
       console.log('[Rechunk][Debug][EXTRACT]', JSON.stringify(debug));
     }
     return out;
@@ -1125,6 +1475,8 @@ async function chunkWords(words, cfg, requestId) {
   let cwWidths = null; // Float32Array indexed by word index
   let cwSpaceW = 0;
 
+  pushTimingRecord('canvas_precompute_start', { wordCount: words.length });
+  const preT0 = performance.now();
   if (canvasW > 0 && STATE.measurerText) {
     try {
       const style = window.getComputedStyle(STATE.measurerText);
@@ -1153,6 +1505,13 @@ async function chunkWords(words, cfg, requestId) {
       }
     } catch { cwWidths = null; }
   }
+  const totalTokenCount = cwWidths ? cwWidths.reduce((s, arr) => s + arr.length, 0) : 0;
+  pushTimingRecord('canvas_precompute_end', {
+    wordCount: words.length,
+    totalTokenCount,
+    usedCanvas: Boolean(cwWidths),
+    durationMs: Math.round(performance.now() - preT0),
+  });
 
   // Simulate CSS word-wrapping using precomputed token widths. Returns null if canvas unavailable.
   function fastLineInfo(from, to) {
@@ -1182,7 +1541,16 @@ async function chunkWords(words, cfg, requestId) {
 
     const startMs = words[startIndex].start;
     const lastWordStart = words[endIndexExclusive - 1].start;
+    const lastWordEnd = words[endIndexExclusive - 1].end;
+    const lastTimedPoint = lastWordEnd ?? lastWordStart;
     const nextStart = words[endIndexExclusive]?.start;
+    const pauseAfterMs = nextStart != null ? nextStart - lastTimedPoint : null;
+    const longPauseHideAtMs = pauseAfterMs != null && pauseAfterMs >= cfg.longPauseThresholdMs
+      ? lastTimedPoint + cfg.longPauseHoldMs
+      : null;
+    const longPauseGapMs = longPauseHideAtMs != null && nextStart != null
+      ? nextStart - longPauseHideAtMs
+      : null;
 
     let endMs =
       nextStart != null
@@ -1198,12 +1566,30 @@ async function chunkWords(words, cfg, requestId) {
     }
 
     const displayText = getDisplayText(text);
-    chunks.push({ startMs, endMs, text: displayText });
+    chunks.push({
+      startMs,
+      endMs,
+      lastWordStartMs: lastWordStart,
+      lastWordEndMs: lastWordEnd ?? null,
+      nextStartMs: nextStart ?? null,
+      pauseAfterMs,
+      longPauseHideAtMs,
+      longPauseGapMs,
+      text: displayText,
+    });
     if (shouldDebug) {
       debugChunks.push({
         idx: chunks.length - 1,
         startWord: startIndex,
         endWord: endIndexExclusive - 1,
+        startMs,
+        endMs,
+        lastWordStartMs: lastWordStart,
+        lastWordEndMs: lastWordEnd ?? null,
+        nextStartMs: nextStart ?? null,
+        pauseAfterMs,
+        longPauseHideAtMs,
+        longPauseGapMs,
         measuredLineCount: meta.layout.lineCount,
         measuredHeightLineCount: meta.layout.heightLineCount,
         measuredMaxLineCount: meta.layout.maxLineCount,
@@ -1259,6 +1645,16 @@ async function chunkWords(words, cfg, requestId) {
       const breaks = classifyBreakChar(currentWord.text);
       lastFitEnd = end;
       lastFitText = text;
+
+      if (
+        nextWord &&
+        currentWord.preserveEventBoundary &&
+        currentWord.eventIndex !== nextWord.eventIndex
+      ) {
+        reason = 'manual_caption_event_boundary';
+        chosenEnd = end; chosenText = text;
+        break;
+      }
 
       if (nextWord && /^\s*(>>|<<)/.test(nextWord.text)) {
         reason = 'speaker_change';
@@ -1370,15 +1766,32 @@ async function chunkWords(words, cfg, requestId) {
     const ms = (video.currentTime || 0) * 1000 + CFG.lookaheadMs;
     let active = '';
     let activeIndex = -1;
+    let activeWindow = null;
     const N = STATE.chunks.length;
 
     for (let i = 0; i < N; i++) {
       const c = STATE.chunks[i];
       const next = STATE.chunks[i + 1];
-      const winEnd = next ? next.startMs : c.endMs;
+      const shouldHideBeforeNext =
+        c.longPauseHideAtMs != null &&
+        next &&
+        next.startMs > c.longPauseHideAtMs;
+      const winEnd = shouldHideBeforeNext
+        ? c.longPauseHideAtMs
+        : next
+          ? next.startMs
+          : c.endMs;
       if (ms >= c.startMs && ms < winEnd) {
         active = c.text;
         activeIndex = i;
+        activeWindow = {
+          windowEndMs: winEnd,
+          windowEndReason: shouldHideBeforeNext
+            ? 'long_pause_hold_elapsed'
+            : next
+              ? 'next_chunk'
+              : 'chunk_end',
+        };
         break;
       }
       if (ms < c.startMs) break;
@@ -1391,7 +1804,7 @@ async function chunkWords(words, cfg, requestId) {
     }
     STATE.overlay.dataset.empty = active ? '0' : '1';
     if (active && activeIndex >= 0) {
-      logRenderedChunk(activeIndex, STATE.chunks[activeIndex]);
+      logRenderedChunk(activeIndex, STATE.chunks[activeIndex], activeWindow);
     }
     STATE.lastText = active;
   }
@@ -1442,6 +1855,12 @@ async function chunkWords(words, cfg, requestId) {
     STATE.triggered  = false;
     STATE.triggerAttempts = 0;
     STATE.statusMode = 'idle';
+    STATE.timedtextRequestCount = 0;
+    STATE.timedtextResponseCount = 0;
+    STATE.lastTimedtextRequest = null;
+    STATE.lastTimedtextResponse = null;
+    STATE.lastCaptionTrigger = null;
+    STATE.lastCaptionTracks = null;
   }
 
   function setStatus(mode) {
