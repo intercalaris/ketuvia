@@ -9,6 +9,11 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 3.1.0
+- Performance: avoid duplicate chunk rebuilds when the transcript, layout, font, size, line count, caps setting, and debug mode have not changed
+- Performance: skip starting a second identical chunk rebuild while the first one is still running, reducing repeated work on long videos
+- Release: Chrome-only submission while the Firefox version remains in AMO review
+
 ### Version 3 (3.0.0 - 3.0.2)
 - Fix: captions no longer stay visible through very long silent gaps; long-pause hiding uses the last timed caption point plus a hold window instead of waiting until the next caption starts
 - Fix: creator/manual caption lines are no longer merged across original YouTube caption events, preserving intentional lyric/stanza splits

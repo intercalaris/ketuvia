@@ -252,7 +252,7 @@
       });
     }
     if (DEBUG.enabled && STATE.words.length) {
-      rebuildChunksForLayout();
+      rebuildChunksForLayout('debug_enabled');
     } else {
       STATE.debugChunks = [];
     }
@@ -288,6 +288,8 @@
     lastCaptionTracks: null,
     fontLoadRequestId: 0,
     chunkBuildRequestId: 0,
+    chunkBuildSignature: null,
+    chunkBuildInFlightSignature: null,
     debugChunks: [],
     settings: readSettings(),
   };
@@ -342,7 +344,7 @@
       }
 
       if (STATE.chunks.length) { mountOverlay(); startPolling(); renderCurrentCaption(true); }
-      else if (STATE.words.length) { rebuildChunksForLayout(); startPolling(); }
+      else if (STATE.words.length) { rebuildChunksForLayout('enabled_with_words'); startPolling(); }
       else if (STATE.asrLang && !STATE.triggered) waitForPlayerThenTrigger();
     } else {
       if (STATE.pollId) { clearInterval(STATE.pollId); STATE.pollId = null; }
@@ -377,7 +379,7 @@
     if (needsRebuild && previousSettings.font !== STATE.settings.font) {
       rebuildChunksAfterFontReady();
     } else if (needsRebuild) {
-      rebuildChunksForLayout();
+      rebuildChunksForLayout('settings_changed');
     } else {
       mountOverlay();
     }
@@ -706,7 +708,7 @@
         if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
         STATE.resizeTimerId = setTimeout(() => {
           STATE.resizeTimerId = null;
-          rebuildChunksForLayout();
+          rebuildChunksForLayout('resize');
         }, 120);
       });
       STATE.resizeObserver.observe(player);
@@ -761,7 +763,7 @@
 
     waitForCurrentFont(layout).finally(() => {
       if (requestId !== STATE.fontLoadRequestId) return;
-      rebuildChunksForLayout();
+      rebuildChunksForLayout('font_ready');
     });
   }
 
@@ -769,17 +771,53 @@
     return new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  async function rebuildChunksForLayout() {
+  function getChunkBuildSignature() {
+    const layout = STATE.layout || {};
+    const firstWord = STATE.words[0];
+    const lastWord = STATE.words[STATE.words.length - 1];
+    return [
+      STATE.videoId || currentVideoId() || '',
+      STATE.words.length,
+      firstWord?.startMs ?? '',
+      lastWord?.startMs ?? '',
+      lastWord?.text ?? '',
+      layout.textWidthPx ?? '',
+      layout.fontSizePx ?? '',
+      layout.targetLines ?? '',
+      STATE.settings.textSize,
+      STATE.settings.font,
+      STATE.settings.allCaps ? 'caps' : 'normal',
+      DEBUG.enabled ? 'debug' : 'normal',
+    ].join('|');
+  }
+
+  async function rebuildChunksForLayout(reason = 'unknown') {
     const player = mountOverlay();
     if (!player || !STATE.words.length) return;
 
+    const signature = getChunkBuildSignature();
+    if (STATE.chunks.length && signature === STATE.chunkBuildSignature) {
+      pushTimingRecord('chunk_build_skip', { reason, wordCount: STATE.words.length, cause: 'unchanged' });
+      renderCurrentCaption(true);
+      return;
+    }
+    if (signature === STATE.chunkBuildInFlightSignature) {
+      pushTimingRecord('chunk_build_skip', { reason, wordCount: STATE.words.length, cause: 'already_running' });
+      return;
+    }
+
     const requestId = ++STATE.chunkBuildRequestId;
-    pushTimingRecord('chunk_build_start', { wordCount: STATE.words.length });
+    STATE.chunkBuildInFlightSignature = signature;
+    pushTimingRecord('chunk_build_start', { reason, wordCount: STATE.words.length });
     const t0 = performance.now();
     const chunkResult = await chunkWords(STATE.words, getRuntimeConfig(), requestId);
+    if (STATE.chunkBuildInFlightSignature === signature) {
+      STATE.chunkBuildInFlightSignature = null;
+    }
     if (chunkResult === null || requestId !== STATE.chunkBuildRequestId) return;
 
     pushTimingRecord('chunk_build_end', {
+      reason,
       wordCount: STATE.words.length,
       chunkCount: chunkResult.chunks.length,
       durationMs: Math.round(performance.now() - t0),
@@ -787,6 +825,7 @@
 
     STATE.chunks = chunkResult.chunks;
     STATE.debugChunks = chunkResult.debugChunks;
+    STATE.chunkBuildSignature = signature;
     log('rebuilt ' + STATE.chunks.length + ' chunks for layout width=' + STATE.layout.textWidthPx);
     logChunkBuildSummary();
 
@@ -1103,6 +1142,8 @@
       setStatus('error'); return;
     }
     STATE.words = words;
+    STATE.chunkBuildSignature = null;
+    STATE.chunkBuildInFlightSignature = null;
     clearTriggerRetry();
     captionLoadDebug('timedtext_parsed', {
       eventCount: (data.events || []).length,
@@ -1120,7 +1161,7 @@
     mountOverlay();
     setStatus('active');
     startPolling();
-    rebuildChunksForLayout();
+    rebuildChunksForLayout('timedtext_parsed');
   }
 
   function currentVideoId() {
@@ -1861,6 +1902,8 @@ async function chunkWords(words, cfg, requestId) {
     STATE.lastTimedtextResponse = null;
     STATE.lastCaptionTrigger = null;
     STATE.lastCaptionTracks = null;
+    STATE.chunkBuildSignature = null;
+    STATE.chunkBuildInFlightSignature = null;
   }
 
   function setStatus(mode) {

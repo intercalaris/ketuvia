@@ -160,7 +160,7 @@ jobs:
   # ── Firefox Add-ons / AMO (runs independently of Chrome) ──────────────────
   publish-firefox:
     needs: detect
-    if: needs.detect.outputs.should_publish == 'true'
+    if: false
     runs-on: ubuntu-latest
 
     steps:
