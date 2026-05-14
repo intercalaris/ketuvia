@@ -9,20 +9,22 @@ permissions:
   contents: read
 
 jobs:
-  # ── Detect version change and build both packages ──────────────────────────
   detect:
     runs-on: ubuntu-latest
     outputs:
-      should_publish: ${{ steps.version_check.outputs.should_publish }}
-      current_version: ${{ steps.version_check.outputs.current_version }}
+      should_publish: ${{ steps.release.outputs.should_publish }}
+      publish_chrome: ${{ steps.release.outputs.publish_chrome }}
+      publish_firefox: ${{ steps.release.outputs.publish_firefox }}
+      replace_chrome: ${{ steps.release.outputs.replace_chrome }}
+      current_version: ${{ steps.release.outputs.current_version }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect manifest version change
-        id: version_check
+      - name: Detect release target and version change
+        id: release
         shell: bash
         run: |
           set -euo pipefail
@@ -41,24 +43,56 @@ jobs:
             previous_version="$(git show "${before_sha}:manifest.json" | python3 -c 'import json, sys; print(json.load(sys.stdin)["version"])')"
           fi
 
+          commit_message="$(git log -1 --pretty=%B)"
+          publish_chrome=false
+          publish_firefox=false
+          replace_chrome=false
+
+          if grep -qi '\[chrome+firefox\]' <<< "$commit_message"; then
+            publish_chrome=true
+            publish_firefox=true
+          fi
+
+          if grep -qi '\[chrome\]' <<< "$commit_message"; then
+            publish_chrome=true
+          fi
+
+          if grep -qi '\[firefox\]' <<< "$commit_message"; then
+            publish_firefox=true
+          fi
+
+          if grep -qi '\[replace-chrome\]' <<< "$commit_message"; then
+            publish_chrome=true
+            replace_chrome=true
+          fi
+
           echo "current_version=$current_version" >> "$GITHUB_OUTPUT"
           echo "previous_version=$previous_version" >> "$GITHUB_OUTPUT"
+          echo "publish_chrome=$publish_chrome" >> "$GITHUB_OUTPUT"
+          echo "publish_firefox=$publish_firefox" >> "$GITHUB_OUTPUT"
+          echo "replace_chrome=$replace_chrome" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$previous_version" ] && [ "$previous_version" = "$current_version" ]; then
+          if [ "$publish_chrome" != "true" ] && [ "$publish_firefox" != "true" ]; then
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
-            echo "Manifest version unchanged at $current_version"
+            echo "No release keyword found. Use [chrome], [firefox], [chrome+firefox], or [replace-chrome] to publish."
             exit 0
           fi
 
+          if [ -n "$previous_version" ] && [ "$previous_version" = "$current_version" ]; then
+            echo "Release keyword found, but manifest version is still $current_version."
+            echo "Bump manifest.json before publishing to a store."
+            exit 1
+          fi
+
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          echo "Manifest version changed from '${previous_version:-<none>}' to '$current_version'"
+          echo "Publishing version $current_version. Chrome=$publish_chrome Firefox=$publish_firefox ReplaceChrome=$replace_chrome"
 
       - name: Build packages
-        if: steps.version_check.outputs.should_publish == 'true'
+        if: steps.release.outputs.should_publish == 'true'
         run: python3 build.py
 
       - name: Upload build artifacts
-        if: steps.version_check.outputs.should_publish == 'true'
+        if: steps.release.outputs.should_publish == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -66,10 +100,9 @@ jobs:
             dist/
             amo-metadata.json
 
-  # ── Chrome Web Store (fails independently if item is in review) ────────────
   publish-chrome:
     needs: detect
-    if: needs.detect.outputs.should_publish == 'true'
+    if: needs.detect.outputs.should_publish == 'true' && needs.detect.outputs.publish_chrome == 'true'
     runs-on: ubuntu-latest
 
     env:
@@ -108,6 +141,37 @@ jobs:
           echo "::add-mask::$access_token"
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
+      - name: Cancel pending Chrome review
+        if: needs.detect.outputs.replace_chrome == 'true'
+        shell: bash
+        env:
+          ACCESS_TOKEN: ${{ steps.token.outputs.access_token }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+        run: |
+          set -euo pipefail
+
+          response=$(curl -sS -w "\n%{http_code}" \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -X POST \
+            "https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:cancelSubmission")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "Canceled pending Chrome submission."
+            exit 0
+          fi
+
+          if [ "$http_code" = "400" ] || [ "$http_code" = "404" ]; then
+            echo "No cancelable Chrome submission found, or cancel was not needed."
+            echo "$body"
+            exit 0
+          fi
+
+          echo "$body"
+          exit 1
+
       - name: Upload to Chrome Web Store
         id: upload
         shell: bash
@@ -130,7 +194,7 @@ jobs:
           if [ "$http_code" = "400" ]; then
             reason=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error",{}).get("reason",""))' <<< "$body" 2>/dev/null || echo "")
             if [ "$reason" = "NOT_UPDATEABLE" ]; then
-              echo "Chrome item is currently in review — skipping."
+              echo "Chrome item is currently in review. Use [replace-chrome] on a new version commit to cancel the pending review first."
               echo "skipped=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -157,10 +221,9 @@ jobs:
             -X POST \
             "https://chromewebstore.googleapis.com/v2/publishers/$PUBLISHER_ID/items/$CHROME_EXTENSION_ID:publish"
 
-  # ── Firefox Add-ons / AMO (runs independently of Chrome) ──────────────────
   publish-firefox:
     needs: detect
-    if: false
+    if: needs.detect.outputs.should_publish == 'true' && needs.detect.outputs.publish_firefox == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -187,6 +250,6 @@ jobs:
             --amo-metadata=amo-metadata.json \
             --approval-timeout=0 2>&1) && echo "$output" || {
             echo "$output"
-            echo "$output" | grep -q "already exists" && { echo "Version already submitted to AMO — skipping."; exit 0; }
+            echo "$output" | grep -q "already exists" && { echo "Version already submitted to AMO - skipping."; exit 0; }
             exit 1
           }

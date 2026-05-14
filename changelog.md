@@ -7,6 +7,11 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 ## To Fix / Implement
 - Change: use original YouTube caption boundaries more intelligently for auto captions when they indicate speaker or utterance changes without explicit `>>` markers
 
+## Tooling / Release Process
+- Release publishing is now controlled by commit-message keywords: `[chrome]`, `[firefox]`, `[chrome+firefox]`, or `[replace-chrome]`
+- Store publishing requires a manifest version bump; commits without release keywords do not publish to any store
+- `[replace-chrome]` cancels a pending Chrome Web Store review before uploading the new Chrome version
+
 ## Shipped Changes
 
 ### Version 3.1.0
