@@ -14,6 +14,9 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 3.2.1
+- Release: re-submit Chrome version to replace pending store review
+
 ### Version 3.2.0
 - Performance: changing font, size, or line count triggers a full caption rebuild. To verify each caption fits within the line limit, its text is written to a hidden DOM element and the browser measures it, which forces a full page layout recalculation. Previously this was done per-caption sequentially, meaning hundreds of recalculations. Now all captions are written to the DOM first, then all are measured in one pass, one recalculation total, roughly 10x faster on long videos.
 - Fix: changing font no longer causes a brief flash of an extra caption line before the layout recalculates
