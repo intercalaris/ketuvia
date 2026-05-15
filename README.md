@@ -13,3 +13,7 @@ Click the Ketuvia extension button in Chrome's toolbar to customize captions. Yo
 It runs entirely in the browser and only uses YouTube's existing caption data. It does not collect data, does not send data anywhere, and does not use external services. It works by intercepting YouTube's caption response, extracting word-level timing data, grouping it into readable chunks based on timing and layout rules, and rendering it in a synchronized overlay over the video.
 
 To install manually from this folder, open Chrome or any Chromium-based browser and go to the extensions page (chrome://extensions or equivalent), enable Developer Mode, click "Load unpacked," and select the extension folder.
+
+---
+
+Built by [Yonatan Mateo Aviv](https://www.linkedin.com/in/yonatanaviv) -- software engineer, MS in CS, linguistics enthusiast.
