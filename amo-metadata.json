@@ -1,6 +1,6 @@
 {
   "categories": {
-    "firefox": ["other"]
+    "firefox": ["appearance", "language-support", "photos-music-videos"]
   },
   "summary": {
     "en-US": "Replaces YouTube's word-by-word auto-captions with customizable phrase-based captions for better readability and accessibility."
