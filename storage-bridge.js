@@ -3,7 +3,6 @@
 
   const ENABLED_STORAGE_KEY = 'ketuviaEnabled';
   const DEBUG_STORAGE_KEY   = 'ketuviaDebug';
-  const debugStorage = chrome.storage.session ?? chrome.storage.local;
 
   function syncEnabled(enabled) {
     document.documentElement.dataset.ketuviaEnabled = enabled ? '1' : '0';
@@ -11,10 +10,8 @@
   }
 
   function syncDebug(enabled) {
-    document.documentElement.dispatchEvent(new CustomEvent('ketuvia-debug-change', {
-      bubbles: true,
-      detail: { enabled: Boolean(enabled) },
-    }));
+    document.documentElement.dataset.ketuviaDebug = enabled ? '1' : '0';
+    document.documentElement.dispatchEvent(new Event('ketuvia-debug-change'));
   }
 
   chrome.storage.local.get({ [ENABLED_STORAGE_KEY]: true }, items => {
@@ -22,7 +19,7 @@
     syncEnabled(items[ENABLED_STORAGE_KEY] !== false);
   });
 
-  debugStorage.get({ [DEBUG_STORAGE_KEY]: false }, items => {
+  chrome.storage.local.get({ [DEBUG_STORAGE_KEY]: false }, items => {
     if (chrome.runtime.lastError) return;
     syncDebug(items[DEBUG_STORAGE_KEY] === true);
   });
@@ -31,8 +28,7 @@
     if (areaName === 'local' && changes[ENABLED_STORAGE_KEY]) {
       syncEnabled(changes[ENABLED_STORAGE_KEY].newValue !== false);
     }
-    const debugArea = chrome.storage.session ? 'session' : 'local';
-    if (areaName === debugArea && changes[DEBUG_STORAGE_KEY]) {
+    if (areaName === 'local' && changes[DEBUG_STORAGE_KEY]) {
       syncDebug(changes[DEBUG_STORAGE_KEY].newValue === true);
     }
   });

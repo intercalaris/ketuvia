@@ -14,7 +14,7 @@ const capsToggle = document.getElementById('caps-toggle');
 const reset = document.getElementById('reset');
 const ENABLED_STORAGE_KEY = 'ketuviaEnabled';
 const DEBUG_STORAGE_KEY = 'ketuviaDebug';
-const debugStorage = chrome.storage.session ?? chrome.storage.local;
+const debugStorage = chrome.storage.local;
 
 function normalizeSettings(settings) {
   const textSize = ['small', 'medium', 'large'].includes(settings?.textSize)

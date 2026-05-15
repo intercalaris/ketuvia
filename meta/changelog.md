@@ -14,6 +14,11 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 3.2.0
+- Performance: changing font, size, or line count triggers a full caption rebuild. To verify each caption fits within the line limit, its text is written to a hidden DOM element and the browser measures it, which forces a full page layout recalculation. Previously this was done per-caption sequentially, meaning hundreds of recalculations. Now all captions are written to the DOM first, then all are measured in one pass, one recalculation total, roughly 10x faster on long videos.
+- Fix: changing font no longer causes a brief flash of an extra caption line before the layout recalculates
+- Fix: caption trimming after a line overflow now handles being off by more than one word, and no longer crashes on single-word captions
+
 ### Version 3.1.0
 - Performance: avoid duplicate chunk rebuilds when the transcript, layout, font, size, line count, caps setting, and debug mode have not changed
 - Performance: skip starting a second identical chunk rebuild while the first one is still running, reducing repeated work on long videos
@@ -33,7 +38,7 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - Font-size selector circles in popup now vertically aligned
 - Arabic/Hebrew RTL rendering improvements
 - Fix: storage-bridge.js crashed with `TypeError` when YouTube blocked extension storage access (`chrome.runtime.lastError` was not checked before reading `items`), causing debug-mode persistence to silently fail; added lastError guards to both storage callbacks
-- Debug: timing records (`pushTimingRecord`) added for font load, canvas precomputation, and chunk build — always-on, not gated by debug mode — to diagnose video load delays
+- Debug: timing records (`pushTimingRecord`) added for font load, canvas precomputation, and chunk build, gated by debug mode, to diagnose video load delays
 - Debug: `window.__ketuviaLastTimedtext` now always captured (was previously debug-mode-only)
 - Debug: log filenames use date-only ISO format and support Unicode (Hebrew/Arabic) video titles
 

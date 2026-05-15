@@ -165,6 +165,7 @@
   }
 
   function pushTimingRecord(type, detail = {}) {
+    if (!DEBUG.enabled) return;
     const records = window.__ketuviaDebugLog;
     records.push({
       at: new Date().toISOString(),
@@ -240,9 +241,9 @@
   window.ketuviaDownload = downloadKetuviaDebugBundle;
   window.ketuvia = downloadKetuviaDebugBundle;
 
-  window.addEventListener('ketuvia-debug-change', event => {
+  document.documentElement.addEventListener('ketuvia-debug-change', () => {
     const wasEnabled = DEBUG.enabled;
-    DEBUG.enabled = Boolean(event.detail?.enabled);
+    DEBUG.enabled = document.documentElement.dataset.ketuviaDebug === '1';
     window.__ketuviaDebugEnabled = DEBUG.enabled;
     if (DEBUG.enabled && !wasEnabled) {
       window.__ketuviaDebugLog = [];
@@ -379,12 +380,11 @@
     if (needsRebuild && previousSettings.font !== STATE.settings.font) {
       rebuildChunksAfterFontReady();
     } else if (needsRebuild) {
-      rebuildChunksForLayout('settings_changed');
+      rebuildChunksForLayout('settings_changed', true);
     } else {
       mountOverlay();
+      renderCurrentCaption(true);
     }
-
-    renderCurrentCaption(true);
 
     return { ...STATE.settings };
   }
@@ -399,21 +399,11 @@
   const log = (...a) => {
     if (!DEBUG.enabled) return;
     pushDebugRecord('log', { message: a.map(String).join(' ') });
-    console.log(
-      '[Rechunk]',
-      new Date().toISOString(),
-      ...a
-    );
   };
 
   const warn = (...a) => {
     if (!DEBUG.enabled) return;
     pushDebugRecord('warn', { message: a.map(String).join(' ') });
-    console.warn(
-      '[Rechunk]',
-      new Date().toISOString(),
-      ...a
-    );
   };
 
   function captionLoadDebug(stage, detail = {}) {
@@ -430,7 +420,6 @@
       ...detail,
     };
     pushDebugRecord('caption_load', payload);
-    console.log('[Rechunk][Debug][CAPTION_LOAD]', JSON.stringify(payload));
   }
 
   function clamp(n, min, max) {
@@ -660,7 +649,7 @@
     node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
   }
 
-  function mountOverlay() {
+  function mountOverlay({ skipOverlayLayout = false } = {}) {
     if (!document.head.contains(_captionHideStyle)) document.head.appendChild(_captionHideStyle);
 
     const player = getPlayerElement();
@@ -699,7 +688,7 @@
     const layout = getLayoutMetrics(player);
     if (layout) {
       STATE.layout = layout;
-      applyLayout(STATE.overlay, layout);
+      if (!skipOverlayLayout) applyLayout(STATE.overlay, layout);
       applyLayout(STATE.measurer, layout);
     }
 
@@ -740,6 +729,54 @@
     );
   }
 
+  function batchVerifyOverflows(pending) {
+    if (!pending.length || !STATE.measurer?.parentElement || !STATE.layout) return [];
+
+    const layout = STATE.layout;
+    const ms = STATE.measurer;
+    const container = document.createElement('div');
+
+    container.style.position = 'absolute';
+    container.style.top = ms.style.top || 'auto';
+    container.style.bottom = ms.style.bottom || 'auto';
+    container.style.left = ms.style.left || 'auto';
+    container.style.right = ms.style.right || 'auto';
+    container.style.transform = ms.style.transform || '';
+    container.style.width = `min(${layout.textWidthPx}px, calc(100% - 32px))`;
+    container.style.minWidth = '0';
+    container.style.padding = '2px 8px';
+    container.style.visibility = 'hidden';
+    container.style.display = 'block';
+    container.style.zIndex = '-1';
+    container.style.pointerEvents = 'none';
+    container.style.fontFamily = FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson;
+    container.style.fontSize = layout.fontSizePx + 'px';
+    container.style.lineHeight = String(layout.lineHeight);
+    container.style.fontWeight = '400';
+    container.style.letterSpacing = '0.01em';
+    container.style.fontFeatureSettings = STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal';
+
+    const children = pending.map(item => {
+      const el = document.createElement('div');
+      el.style.width = '100%';
+      el.style.whiteSpace = 'pre-wrap';
+      el.style.wordWrap = 'break-word';
+      el.dir = 'auto';
+      el.textContent = item.displayText;
+      container.appendChild(el);
+      return el;
+    });
+
+    ms.parentElement.appendChild(container);
+
+    const results = children.map(el =>
+      measureNodeLayout(el, layout.textWidthPx, layout.targetLines, false)
+    );
+
+    container.remove();
+    return results;
+  }
+
   async function waitForCurrentFont(layout) {
     if (!document.fonts?.load || !layout) return;
 
@@ -755,7 +792,7 @@
   }
 
   function rebuildChunksAfterFontReady() {
-    const player = mountOverlay();
+    const player = mountOverlay({ skipOverlayLayout: true });
     if (!player || !STATE.words.length) return;
 
     const requestId = ++STATE.fontLoadRequestId;
@@ -763,7 +800,7 @@
 
     waitForCurrentFont(layout).finally(() => {
       if (requestId !== STATE.fontLoadRequestId) return;
-      rebuildChunksForLayout('font_ready');
+      rebuildChunksForLayout('font_ready', true);
     });
   }
 
@@ -791,13 +828,14 @@
     ].join('|');
   }
 
-  async function rebuildChunksForLayout(reason = 'unknown') {
-    const player = mountOverlay();
+  async function rebuildChunksForLayout(reason = 'unknown', deferOverlay = false) {
+    const player = mountOverlay({ skipOverlayLayout: deferOverlay });
     if (!player || !STATE.words.length) return;
 
     const signature = getChunkBuildSignature();
     if (STATE.chunks.length && signature === STATE.chunkBuildSignature) {
       pushTimingRecord('chunk_build_skip', { reason, wordCount: STATE.words.length, cause: 'unchanged' });
+      if (deferOverlay && STATE.overlay && STATE.layout) applyLayout(STATE.overlay, STATE.layout);
       renderCurrentCaption(true);
       return;
     }
@@ -829,6 +867,7 @@
     log('rebuilt ' + STATE.chunks.length + ' chunks for layout width=' + STATE.layout.textWidthPx);
     logChunkBuildSummary();
 
+    if (deferOverlay && STATE.overlay && STATE.layout) applyLayout(STATE.overlay, STATE.layout);
     renderCurrentCaption(true);
   }
 
@@ -889,7 +928,6 @@
       chunkCount: STATE.chunks.length,
     };
     pushDebugRecord('build', buildPayload);
-    console.log('[Rechunk][Debug][BUILD]', JSON.stringify(buildPayload));
     STATE.debugChunks.slice(0, DEBUG.maxChunkLogs).forEach(chunk => {
       const chunkPayload = {
         idx: chunk.idx,
@@ -916,7 +954,6 @@
         text: chunk.text,
       };
       pushDebugRecord('chunk', chunkPayload);
-      console.log('[Rechunk][Debug][CHUNK]', JSON.stringify(chunkPayload));
     });
   }
 
@@ -966,7 +1003,6 @@
       innerWidthPx: rendered?.innerWidthPx ?? null,
     };
     pushDebugRecord('render', renderPayload);
-    console.log('[Rechunk][Debug][RENDER]', JSON.stringify(renderPayload));
     if (meta?.candidates?.length) {
       meta.candidates.forEach(candidate => {
         const candidatePayload = {
@@ -974,7 +1010,6 @@
           ...candidate,
         };
         pushDebugRecord('candidate', candidatePayload);
-        console.log('[Rechunk][Debug][CANDIDATE]', JSON.stringify(candidatePayload));
       });
     }
   }
@@ -1498,7 +1533,6 @@
     if (debug) {
       debug.outputTokenCount = out.length;
       pushDebugRecord('extract', debug);
-      console.log('[Rechunk][Debug][EXTRACT]', JSON.stringify(debug));
     }
     return out;
   }
@@ -1507,6 +1541,7 @@ async function chunkWords(words, cfg, requestId) {
   const chunks = [];
   const debugChunks = [];
   const shouldDebug = DEBUG.enabled;
+  const pendingVerification = [];
   if (!words.length) return { chunks, debugChunks };
   let nextYieldAt = performance.now() + cfg.rebuildYieldMs;
 
@@ -1749,17 +1784,29 @@ async function chunkWords(words, cfg, requestId) {
     }
 
     // Resolve final layout.
-    // Overflow chunks: one DOM measurement to verify canvas wasn't optimistic.
-    // Debug mode: DOM for accurate metrics.
+    // Overflow captions: deferred to a single batch DOM pass after the loop (non-debug).
+    // Debug mode: DOM for accurate metrics on every caption.
     // Otherwise: use canvas estimates (no DOM reflow needed).
     if (reason === 'last_word_that_fits_before_overflow') {
-      const verify = measureTextLayout(chosenText);
-      if (verify.lineCount > cfg.targetLines && chosenEnd > start + 1) {
-        chosenEnd--;
-        chosenText = joinWords(words.slice(start, chosenEnd));
-        chosenLayout = measureTextLayout(chosenText);
-      } else {
+      if (shouldDebug) {
+        let verify = measureTextLayout(chosenText);
+        while (verify.lineCount > cfg.targetLines && chosenEnd > start + 1) {
+          chosenEnd--;
+          chosenText = joinWords(words.slice(start, chosenEnd));
+          verify = measureTextLayout(chosenText);
+        }
         chosenLayout = verify;
+      } else {
+        const fi = fastLineInfo(start, chosenEnd);
+        chosenLayout = fi
+          ? { lineCount: fi.lineCount, lastLineFill: fi.lastLineFill, fillRatio: 0, heightLineCount: fi.lineCount, maxLineCount: fi.lineCount, rawRectCount: fi.lineCount, clientHeight: 0, scrollHeight: 0, offsetHeight: 0, lineHeightPx: 0 }
+          : { lineCount: cfg.targetLines, lastLineFill: 1, fillRatio: 1, heightLineCount: cfg.targetLines, maxLineCount: cfg.targetLines, rawRectCount: cfg.targetLines, clientHeight: 0, scrollHeight: 0, offsetHeight: 0, lineHeightPx: 0 };
+        pendingVerification.push({
+          chunkIdx: chunks.length,
+          displayText: getDisplayText(chosenText),
+          startWord: start,
+          endWord: chosenEnd,
+        });
       }
     } else if (shouldDebug) {
       chosenLayout = measureTextLayout(chosenText);
@@ -1782,6 +1829,28 @@ async function chunkWords(words, cfg, requestId) {
       await yieldToBrowser();
       nextYieldAt = performance.now() + cfg.rebuildYieldMs;
       if (STATE.chunkBuildRequestId !== requestId) return null;
+    }
+  }
+
+  if (!shouldDebug && pendingVerification.length > 0) {
+    const batchResults = batchVerifyOverflows(pendingVerification);
+    for (let i = 0; i < batchResults.length; i++) {
+      const result = batchResults[i];
+      const item = pendingVerification[i];
+      if (!result || result.lineCount <= cfg.targetLines) continue;
+      // Canvas underestimated — trim sequentially (rare path, accepted cascade trade-off)
+      let newEnd = item.endWord - 1;
+      if (newEnd <= item.startWord) continue; // single-word caption overflows — can't trim further, leave as-is
+      let trimText = joinWords(words.slice(item.startWord, newEnd));
+      let trimLayout = measureTextLayout(trimText);
+      while (trimLayout.lineCount > cfg.targetLines && newEnd > item.startWord + 1) {
+        newEnd--;
+        trimText = joinWords(words.slice(item.startWord, newEnd));
+        trimLayout = measureTextLayout(trimText);
+      }
+      chunks[item.chunkIdx].text = getDisplayText(trimText);
+      chunks[item.chunkIdx].lastWordStartMs = words[newEnd - 1].start;
+      chunks[item.chunkIdx].lastWordEndMs = words[newEnd - 1].end ?? null;
     }
   }
 
