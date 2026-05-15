@@ -1,5 +1,7 @@
 KETUVIA
 
+<img src="meta/Demo.png" width="700" alt="Ketuvia showing phrase-based captions on a YouTube video with the customization panel open">
+
 This extension replaces YouTube's word-by-word auto captions with phrase-level captions that are easier to read. YouTube's auto captions often appear one word at a time as speech is processed, which creates fragmented and hard-to-follow text. This extension fixes that by reading the same caption data, grouping words into natural phrase chunks, and displaying them as continuous sentences instead of incremental word updates. It exists for deaf and hard-of-hearing users, people with sensory processing disorders, language learners, and anyone who finds word-by-word caption rendering difficult to follow.
 
 [Install it from the Chrome Web Store](https://chromewebstore.google.com/detail/ketuvia-accessible-captio/aojjnbkipebndcbnojlliplfbhnpidhk)
