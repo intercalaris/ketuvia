@@ -1,9 +1,9 @@
 {
   "version": {
-    "license": "MPL-2.0"
+    "license": "AGPL-3.0-or-later"
   },
   "categories": {
-    "firefox": ["other"]
+    "firefox": ["accessibility"]
   },
   "summary": {
     "en-US": "Replaces YouTube's word-by-word auto-captions with customizable phrase-based captions for better readability and accessibility."
