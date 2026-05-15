@@ -37,9 +37,10 @@
 body {
   margin: 0;
   width: 274px;
-  color: #e8e6dc;
-  background: #20211d;
+  color: #c8c6bc;
+  background: #0c0d09;
   font: 12px/1.2 system-ui, sans-serif;
+  zoom: 1.2;
 }
 
 main {
@@ -140,7 +141,7 @@ main {
   border: 0;
   border-radius: 6px;
   color: #c9c7bc;
-  background: #34352f;
+  background: #282921;
   font-size: 10.5px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -149,8 +150,8 @@ main {
 }
 
 .font-list button[data-active="1"] {
-  color: #161713;
-  background: #d8d6ca;
+  color: #0f100c;
+  background: #c8c6bc;
 }
 
 .caps-row {
@@ -170,7 +171,7 @@ main {
   justify-content: space-between;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #34352f;
+  border-top: 1px solid #282921;
   color: #aaa89e;
   font-size: 11px;
 }
@@ -184,7 +185,7 @@ main {
   display: flex;
   padding: 1px;
   border-radius: 999px;
-  background: #34352f;
+  background: #282921;
 }
 
 .segments button {
@@ -233,8 +234,8 @@ main {
 }
 
 .segments button[data-active="1"] {
-  color: #161713;
-  background: #d8d6ca;
+  color: #0f100c;
+  background: #c8c6bc;
 }
 
 .position-grid {
@@ -245,7 +246,7 @@ main {
   height: 101px;
   padding: 2px;
   border-radius: 7px;
-  background: #2b2c27;
+  background: #191a14;
 }
 
 .position-grid button {
@@ -254,16 +255,16 @@ main {
   padding: 0;
   border: 0;
   border-radius: 2px;
-  background: #575850;
+  background: #363730;
   cursor: pointer;
 }
 
 .position-grid button:hover {
-  background: #858579;
+  background: #505148;
 }
 
 .position-grid button[data-active="1"] {
-  background: #d8d6ca;
+  background: #c8c6bc;
 }
 
 #reset {
@@ -272,14 +273,14 @@ main {
   border: 0;
   border-radius: 6px;
   color: #aaa89e;
-  background: #2b2c27;
+  background: #191a14;
   font: inherit;
   font-size: 11px;
   cursor: pointer;
 }
 
 #reset:hover {
-  background: #34352f;
+  background: #282921;
 }
 
 .debug-row input {
@@ -294,7 +295,7 @@ main {
   height: 16px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #575850;
+  background: #363730;
   transition: background 120ms ease;
 }
 
@@ -306,21 +307,22 @@ main {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #d8d6ca;
+  background: #c8c6bc;
   transition: transform 120ms ease;
 }
 
 input:checked + .switch {
-  background: #6fb58d;
+  background: #c8c6bc;
 }
 
 input:checked + .switch::before {
+  background: #0f100c;
   transform: translateX(14px);
 }
 
 button:focus-visible,
 input:focus-visible + .switch {
-  outline: 1px solid #d8d6ca;
+  outline: 1px solid #c8c6bc;
   outline-offset: 2px;
 }
 
