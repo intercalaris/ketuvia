@@ -14,6 +14,3 @@ It runs entirely in the browser and only uses YouTube's existing caption data. I
 
 To install manually from this folder, open Chrome or any Chromium-based browser and go to the extensions page (chrome://extensions or equivalent), enable Developer Mode, click "Load unpacked," and select the extension folder.
 
----
-
-Built by [Yonatan Mateo Aviv](https://www.linkedin.com/in/yonatanaviv) -- software engineer, MS in CS, linguistics enthusiast.
