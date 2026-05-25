@@ -1484,6 +1484,9 @@
         }
       : null;
     let lastStart = -1;
+    // Synthetic index incremented per sub-line for manual captions so that
+    // the preserveEventBoundary check in chunkWords breaks at \n boundaries.
+    let subLineCounter = 0;
     for (const [eventIndex, ev] of eventInfo.events.entries()) {
       if (!ev.segs) continue;
       const base = ev.tStartMs || 0;
@@ -1497,37 +1500,96 @@
           continue;
         }
         const start = base + (s.tOffsetMs || 0);
-        if (start <= lastStart) {
-          if (debug) debug.skippedNonIncreasingStartCount += 1;
-          continue;
-        }
-        out.push({
-          start,
-          end: eventInfo.sourceKind === 'manual_event_captions' ? eventEndMs : null,
-          text,
-          eventIndex,
-          sourceKind: eventInfo.sourceKind,
-          preserveEventBoundary: eventInfo.sourceKind === 'manual_event_captions',
-        });
-        if (debug) {
-          const tokens = text.trim().split(/\s+/).filter(Boolean);
-          if (tokens.length > 1) debug.multiWordSegCount += 1;
-          if (debug.samples.length < 30 || tokens.length > 1) {
-            debug.samples.push({
-              eventIndex,
-              segIndex,
-              eventStartMs: base,
-              eventDurationMs,
-              segOffsetMs: s.tOffsetMs || 0,
-              startMs: start,
-              tokenCount: tokens.length,
-              keptAs: 'segment',
-              text,
-              tokens,
-            });
+
+        if (eventInfo.sourceKind === 'manual_event_captions') {
+          // Manual captions: one segment holds the full sentence, possibly with \n
+          // where the creator intended a line break. Split into sub-lines at \n,
+          // then into individual words within each sub-line, distributing timing
+          // proportionally. This lets the chunk builder reflow within a sub-line
+          // when the user's font or caps setting would otherwise cause overflow,
+          // while still respecting the creator's \n boundaries as hard chunk breaks.
+          const subLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+          if (!subLines.length) {
+            if (debug) debug.skippedNonTextCount += 1;
+            continue;
           }
+          const totalChars = subLines.reduce((s, l) => s + l.length, 0) || 1;
+          const eventDur = Math.max(0, eventEndMs - start);
+          let subLineStart = start;
+          for (let li = 0; li < subLines.length; li++) {
+            const line = subLines[li];
+            const subLineEnd = li === subLines.length - 1
+              ? eventEndMs
+              : subLineStart + Math.round((line.length / totalChars) * eventDur);
+            const subLineDur = Math.max(0, subLineEnd - subLineStart);
+            const lineWords = line.split(/\s+/).filter(Boolean);
+            const syntheticEventIndex = subLineCounter;
+            for (let wi = 0; wi < lineWords.length; wi++) {
+              const wordStart = subLineStart + Math.round((wi / lineWords.length) * subLineDur);
+              if (wordStart <= lastStart) {
+                if (debug) debug.skippedNonIncreasingStartCount += 1;
+                continue;
+              }
+              out.push({
+                start: wordStart,
+                end: subLineEnd,
+                text: lineWords[wi],
+                eventIndex: syntheticEventIndex,
+                sourceKind: eventInfo.sourceKind,
+                preserveEventBoundary: true,
+              });
+              if (debug && debug.samples.length < 30) {
+                debug.samples.push({
+                  eventIndex: syntheticEventIndex,
+                  segIndex,
+                  eventStartMs: base,
+                  eventDurationMs,
+                  segOffsetMs: s.tOffsetMs || 0,
+                  startMs: wordStart,
+                  tokenCount: 1,
+                  keptAs: 'manual-word',
+                  text: lineWords[wi],
+                  tokens: [lineWords[wi]],
+                });
+              }
+              lastStart = wordStart;
+            }
+            subLineStart = subLineEnd;
+            subLineCounter++;
+          }
+        } else {
+          if (start <= lastStart) {
+            if (debug) debug.skippedNonIncreasingStartCount += 1;
+            continue;
+          }
+          out.push({
+            start,
+            end: null,
+            text,
+            eventIndex,
+            sourceKind: eventInfo.sourceKind,
+            preserveEventBoundary: false,
+          });
+          if (debug) {
+            const tokens = text.trim().split(/\s+/).filter(Boolean);
+            if (tokens.length > 1) debug.multiWordSegCount += 1;
+            if (debug.samples.length < 30 || tokens.length > 1) {
+              debug.samples.push({
+                eventIndex,
+                segIndex,
+                eventStartMs: base,
+                eventDurationMs,
+                segOffsetMs: s.tOffsetMs || 0,
+                startMs: start,
+                tokenCount: tokens.length,
+                keptAs: 'segment',
+                text,
+                tokens,
+              });
+            }
+          }
+          lastStart = start;
         }
-        lastStart = start;
       }
     }
     if (debug) {
