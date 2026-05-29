@@ -1,3 +1,5 @@
 dist/
-meta/ketuvia-explained.md
-meta/logs/
+meta/*
+!meta/Demo.png
+!meta/Demo2.png
+!meta/logo.png

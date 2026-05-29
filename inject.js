@@ -22,11 +22,11 @@
     maxTriggerAttempts: 8,
     textWidthEm:     24,
     minTextWidthPx: 360,
-    maxTextWidthPx: 720,
     playerPaddingPx: 32,
     fontSizeRatio: 0.0155,
-    minFontPx:      16,
-    maxFontPx:      32,
+    minFontPx:  { small: 16, medium: 22, large: 24 },
+    maxFontPx:      34,
+    maxTextWidthPx: { small: 500, medium: 540, large: 690 },
     lineHeight:    1.4,
     rebuildYieldMs: 50,
   };
@@ -70,24 +70,24 @@
     'left-top': { x: 'left', y: '8%' },
     'center-top': { x: 'center', y: '8%' },
     'right-top': { x: 'right', y: '8%' },
-    'left-high': { x: 'left', y: '20%' },
-    'center-high': { x: 'center', y: '20%' },
-    'right-high': { x: 'right', y: '20%' },
-    'left-highish': { x: 'left', y: '35%' },
-    'center-highish': { x: 'center', y: '35%' },
-    'right-highish': { x: 'right', y: '35%' },
+    'left-high': { x: 'left', y: '18%' },
+    'center-high': { x: 'center', y: '18%' },
+    'right-high': { x: 'right', y: '18%' },
+    'left-highish': { x: 'left', y: '30%' },
+    'center-highish': { x: 'center', y: '30%' },
+    'right-highish': { x: 'right', y: '30%' },
     'left-middle': { x: 'left', y: '50%' },
     'center-middle': { x: 'center', y: '50%' },
     'right-middle': { x: 'right', y: '50%' },
-    'left-lowish': { x: 'left', y: '68%' },
-    'center-lowish': { x: 'center', y: '68%' },
-    'right-lowish': { x: 'right', y: '68%' },
-    'left-low': { x: 'left', y: '84%' },
-    'center-low': { x: 'center', y: '84%' },
-    'right-low': { x: 'right', y: '84%' },
-    'left-bottom': { x: 'left', y: '94%' },
-    'center-bottom': { x: 'center', y: '94%' },
-    'right-bottom': { x: 'right', y: '94%' },
+    'left-lowish': { x: 'left', y: '70%' },
+    'center-lowish': { x: 'center', y: '70%' },
+    'right-lowish': { x: 'right', y: '70%' },
+    'left-low': { x: 'left', y: '82%' },
+    'center-low': { x: 'center', y: '82%' },
+    'right-low': { x: 'right', y: '82%' },
+    'left-bottom': { x: 'left', y: '92%' },
+    'center-bottom': { x: 'center', y: '92%' },
+    'right-bottom': { x: 'right', y: '92%' },
   };
 
   function readSettings() {
@@ -298,6 +298,8 @@
   window.__ketuviaEnabled = STATE.enabled;
 
   function areNativeCaptionsEnabled() {
+    if (location.pathname.startsWith('/shorts/')) return true;
+
     const player = getPlayerElement();
     const button =
       player?.querySelector('.ytp-subtitles-button') ||
@@ -392,6 +394,24 @@
   window.__ketuviaSettings = { ...STATE.settings };
   window.__ketuviaApplySettings = applySettings;
 
+  window.addEventListener('storage', event => {
+    if (event.key !== SETTINGS_STORAGE_KEY || !event.newValue) return;
+    try {
+      const parsed = JSON.parse(event.newValue);
+      const next = normalizeSettings(parsed);
+      const current = STATE.settings;
+      if (
+        next.targetLines === current.targetLines &&
+        next.textSize === current.textSize &&
+        next.background === current.background &&
+        next.position === current.position &&
+        next.font === current.font &&
+        next.allCaps === current.allCaps
+      ) return;
+      applySettings(next);
+    } catch {}
+  });
+
   window.addEventListener('ketuvia-settings-change', event => {
     applySettings(event.detail);
   });
@@ -427,7 +447,8 @@
   }
 
   function getPlayerElement() {
-    return document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
+    const video = document.querySelector('video');
+    return video?.closest('.html5-video-player') || document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
   }
 
   function getRuntimeConfig() {
@@ -465,20 +486,22 @@
     if (!playerWidth) return null;
     const settings = STATE.settings;
     const runtimeConfig = getRuntimeConfig();
-    const textSizeScale = TEXT_SIZE_SCALE[settings.textSize] || TEXT_SIZE_SCALE.medium;
 
-    const fontSizePx = clamp(
-      Math.round(playerWidth * CFG.fontSizeRatio * textSizeScale * 10) / 10,
-      CFG.minFontPx,
-      CFG.maxFontPx
-    );
+    const rawFont = Math.round(playerWidth * CFG.fontSizeRatio * (TEXT_SIZE_SCALE[settings.textSize] || TEXT_SIZE_SCALE.medium) * 10) / 10;
+    // Small font uses fixed sizes: 16 on tiny mini-player, 20 everywhere else.
+    // No formula-based scaling so it stays constant across half-width to full.
+    const fontSizePx = settings.textSize === 'small'
+      ? (playerWidth > 500 ? 20 : 16)
+      : clamp(rawFont, CFG.minFontPx[settings.textSize] || CFG.minFontPx.medium, CFG.maxFontPx);
 
     const maxAvailableWidth = Math.max(0, playerWidth - CFG.playerPaddingPx);
-    const targetTextWidth = Math.round(fontSizePx * CFG.textWidthEm);
+    const widthFloor = ({ small: 16, medium: 18, large: 20 }[settings.textSize] || 16);
+    const fontForWidth = clamp(rawFont, widthFloor, 32);
+    const maxW = Math.min(CFG.maxTextWidthPx[settings.textSize] || CFG.maxTextWidthPx.medium, maxAvailableWidth);
     const textWidthPx = clamp(
-      targetTextWidth,
+      Math.round(fontForWidth * CFG.textWidthEm),
       Math.min(CFG.minTextWidthPx, maxAvailableWidth),
-      Math.min(CFG.maxTextWidthPx, maxAvailableWidth)
+      maxW
     );
 
     return {
@@ -616,11 +639,18 @@
       '--rechunk-font-feature-settings',
       STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal'
     );
-    const y = Number.parseFloat(position.y);
+    // Shorts videos are tall, so the same percent translates to a larger
+    // pixel offset from center. Compress y toward center on Shorts so each
+    // labelled position lands where it visually belongs.
+    const SHORTS_Y_REMAP = { 8: 18, 18: 30, 30: 40, 50: 50, 70: 60, 82: 70, 92: 82 };
+    const rawY = Number.parseFloat(position.y);
+    const y = location.pathname.startsWith('/shorts/') && SHORTS_Y_REMAP[rawY] != null
+      ? SHORTS_Y_REMAP[rawY]
+      : rawY;
     const anchorTop = y <= 8;
-    const anchorBottom = y >= 94;
+    const anchorBottom = y >= 92;
 
-    node.style.top = position.y;
+    node.style.top = y + '%';
     node.style.bottom = 'auto';
     node.style.left = 'auto';
     node.style.right = 'auto';
@@ -643,6 +673,42 @@
       node.style.top = 'auto';
       node.style.bottom = '8px';
       node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+      return;
+    }
+
+    // Anchor relative to video element's actual rect, not player's CSS height
+    // (which lags during resize). Bottom-half positions anchor to video bottom
+    // so the gap stays proportional to video height, not absolute pixels.
+    const video = document.querySelector('video');
+    const playerEl = getPlayerElement();
+    const vr = video?.getBoundingClientRect();
+    const pr = playerEl?.getBoundingClientRect();
+    if (vr && pr && vr.height > 0) {
+      const videoOffsetInPlayer = vr.top - pr.top;
+      const isShorts = location.pathname.startsWith('/shorts/');
+      if (isShorts) {
+        // Tall Shorts videos: place the box CENTER at y% of video height so
+        // top/bottom positions are mirror-symmetric and middle is true center.
+        // Top 3 positions (rawY <= 30) get nudged up by 2 lines worth of
+        // caption height so they sit closer to the top edge.
+        const shiftLines = rawY <= 30 ? -4 : rawY >= 92 ? 0.75 : 0;
+        const shiftPx = shiftLines * (layout.fontSizePx || 0) * (layout.lineHeight || 1.4);
+        const centerPx = Math.round(videoOffsetInPlayer + (y / 100) * vr.height + shiftPx);
+        node.style.top = centerPx + 'px';
+        node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
+      } else if (y > 50) {
+        let bottomGapPx = Math.round(((100 - y) / 2 / 100) * vr.height);
+        // Small clearance floor for the second-lowest position so the overlay
+        // doesn't sit on YouTube's controls on medium-sized players.
+        if (y === 82) bottomGapPx = Math.max(bottomGapPx, 50);
+        node.style.top = 'auto';
+        node.style.bottom = Math.round(pr.height - (videoOffsetInPlayer + vr.height) + bottomGapPx) + 'px';
+        node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+      } else {
+        const topPx = Math.round(videoOffsetInPlayer + (y / 100) * vr.height);
+        node.style.top = topPx + 'px';
+        node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
+      }
       return;
     }
 
@@ -783,7 +849,7 @@
     const family = FONT_LOAD_FAMILIES[STATE.settings.font];
     if (!family) return;
 
-    const size = Math.max(1, Math.round(layout.fontSizePx || CFG.maxFontPx));
+    const size = Math.max(1, Math.round(layout.fontSizePx || 32));
     const fontSpec = `400 ${size}px ${family}`;
     pushTimingRecord('font_load_start', { fontSpec });
     const t0 = performance.now();
@@ -1049,7 +1115,13 @@
       preview: text.slice(0, 60),
     });
     log('intercepted timedtext vid=' + vid + ' len=' + text.length);
-    if (STATE.videoId && vid !== STATE.videoId) return;
+    if (STATE.videoId && vid !== STATE.videoId) {
+      // Timedtext request is itself the authoritative signal that captions
+      // for a new video are loading — the URL update / navigate-finish often
+      // races behind it (especially on Shorts scroll). Reset and adopt.
+      resetForNewVideo();
+      STATE.videoId = vid;
+    }
     if (!STATE.videoId) STATE.videoId = vid;
     processTimedtext(text);
   }
@@ -1200,6 +1272,9 @@
   }
 
   function currentVideoId() {
+    if (location.pathname.startsWith('/shorts/')) {
+      return location.pathname.split('/shorts/')[1]?.split('?')[0] || null;
+    }
     if (location.pathname !== '/watch') return null;
     try { return new URL(location.href).searchParams.get('v'); } catch { return null; }
   }

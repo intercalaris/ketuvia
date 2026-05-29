@@ -167,7 +167,6 @@
   padding: 0;
 }
 
-.ytp-miniplayer #rechunk-overlay,
-ytd-shorts #rechunk-overlay {
+.ytp-miniplayer #rechunk-overlay {
   display: none;
 }
