@@ -19,6 +19,16 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.0.0
+- **YouTube Shorts support.** Captions now work on Shorts, including scrolling from one Short to the next. Shorts deliver caption data only through the intercepted `timedtext` request (there is no `ytInitialPlayerResponse`), and the timedtext for the next Short arrives before the URL updates, so the interceptor now treats the timedtext response itself as the authoritative signal that a new video is loading and adopts it. The visible Shorts player is `#shorts-player` (the `#movie_player` element is 0x0), so the overlay now mounts on the `.html5-video-player` ancestor of the `<video>` element.
+- **Caption sizing rebuilt as a simple lookup.** The old stack of ratios, per-size scales, floors, and a separate width calculation is gone. Font size is now a flat lookup of 3 player-width buckets (small <700px, medium 700-1250px, large >=1250px) by 3 font settings, and the caption box width is just the font size times a fixed em count, capped to fit the player. Each of the nine cells is independently tunable with no cross-coupling.
+- **Shorts positioning.** Top and bottom positions are now edge-anchored: a 1-, 2-, or 3-line caption shares the same outer edge and grows inward, so multi-line captions never extend past the video edge, under the subscribe/action buttons, or above the top. Upper and lower positions are mirror-symmetric about the video's center, the middle is true center, and the top three positions are lifted by a configurable amount. Edge positions use the small font as a fixed width/height reference so they sit in the same place regardless of the selected font size.
+- **Shorts width.** The caption box is narrowed and uses the small font as a fixed width basis for every size, so a full line always clears the fixed right-side action buttons (larger fonts wrap to more lines rather than widening the box).
+- **Normal-video width.** Large font keeps its size but uses the medium font's box width (one character wider than medium), and medium/large boxes are trimmed a few characters.
+- Performance: fast window resizing no longer thrashes the main thread. The `ResizeObserver` now reads the new size from `contentRect` (no forced reflow), drops no-op notifications, and trailing-debounces the reflow-heavy layout work so it runs once after the size settles instead of on every notification. This also makes it loop-safe.
+- Settings stay in sync across open tabs and between Shorts and normal videos via a `storage` event listener.
+- Popup: tighter spacing around the donate / debug-mode row.
+
 ### Version 3.2.7
 - Fix: manually written captions now respect user line count, font, and all-caps settings.
 

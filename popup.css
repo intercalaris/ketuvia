@@ -44,7 +44,7 @@ body {
 }
 
 main {
-  padding: 8px;
+  padding: 8px 8px 4px;
 }
 
 .mini-setting,
@@ -169,8 +169,8 @@ main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 4px;
+  padding-top: 4px;
   border-top: 1px solid #282921;
   color: #aaa89e;
   font-size: 11px;

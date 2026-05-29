@@ -20,13 +20,26 @@
     navRetryForMs: 8000,
     triggerRetryMs: 900,
     maxTriggerAttempts: 8,
+    // Caption sizing is a flat lookup: pick a player-width bucket, then read the
+    // font size for the chosen font setting. Box width is just font x widthEm,
+    // capped so it fits the player. No ratios, scales, or floors.
+    widthBuckets: { medium: 700, large: 1250 },   // player-width thresholds (px)
+    fontSizePx: {
+      //          screen:  small  medium  large
+      small:  { small: 16, medium: 18, large: 20 },
+      medium: { small: 20, medium: 24, large: 28 },
+      large:  { small: 24, medium: 30, large: 34 },
+    },
     textWidthEm:     24,
-    minTextWidthPx: 360,
+    // Shorts only: narrow the box so a full line clears the right-side action
+    // buttons (like/subscribe/share). The box is centered, so this trims both
+    // edges — ~3em pulls each side in by roughly 3 characters.
+    shortsWidthReductionEm: 3,
+    // Normal video, medium & large only: trim a few characters off the box.
+    normalWideReductionEm: 5,
+    // Shorts: lift the top 3 positions by this many lines of text height.
+    shortsTopRaiseLines: 1.5,
     playerPaddingPx: 32,
-    fontSizeRatio: 0.0155,
-    minFontPx:  { small: 16, medium: 22, large: 24 },
-    maxFontPx:      34,
-    maxTextWidthPx: { small: 500, medium: 540, large: 690 },
     lineHeight:    1.4,
     rebuildYieldMs: 50,
   };
@@ -39,11 +52,6 @@
     position: 'center-low',
     font: 'atkinson',
     allCaps: false,
-  };
-  const TEXT_SIZE_SCALE = {
-    small: 0.9,
-    medium: 1.2,
-    large: 1.7,
   };
   const BACKGROUND_OPACITY = {
     light: 0.3,
@@ -111,7 +119,7 @@
       targetLines: [1, 2, 3].includes(targetLines)
         ? targetLines
         : DEFAULT_SETTINGS.targetLines,
-      textSize: Object.hasOwn(TEXT_SIZE_SCALE, textSize)
+      textSize: Object.hasOwn(CFG.fontSizePx, textSize)
         ? textSize
         : DEFAULT_SETTINGS.textSize,
       background: Object.hasOwn(BACKGROUND_OPACITY, background)
@@ -272,6 +280,9 @@
     layout:     null,
     resizeObserver: null,
     resizeTimerId: null,
+    resizeLayoutTimerId: null,
+    lastResizeW: -1,
+    lastResizeH: -1,
     measureRange: null,
     pollId:     null,
     lastText:   null,
@@ -481,28 +492,43 @@
     return text.toLocaleUpperCase();
   }
 
+  function widthBucket(playerWidth) {
+    return playerWidth >= CFG.widthBuckets.large ? 'large'
+      : playerWidth >= CFG.widthBuckets.medium ? 'medium'
+      : 'small';
+  }
+
   function getLayoutMetrics(player) {
     const playerWidth = Math.max(0, player?.clientWidth || 0);
     if (!playerWidth) return null;
     const settings = STATE.settings;
     const runtimeConfig = getRuntimeConfig();
 
-    const rawFont = Math.round(playerWidth * CFG.fontSizeRatio * (TEXT_SIZE_SCALE[settings.textSize] || TEXT_SIZE_SCALE.medium) * 10) / 10;
-    // Small font uses fixed sizes: 16 on tiny mini-player, 20 everywhere else.
-    // No formula-based scaling so it stays constant across half-width to full.
-    const fontSizePx = settings.textSize === 'small'
-      ? (playerWidth > 500 ? 20 : 16)
-      : clamp(rawFont, CFG.minFontPx[settings.textSize] || CFG.minFontPx.medium, CFG.maxFontPx);
+    // Bucket the player width, then look up the font size for this setting.
+    const bucket = widthBucket(playerWidth);
+    const sizeRow = CFG.fontSizePx[settings.textSize] || CFG.fontSizePx.medium;
+    const fontSizePx = sizeRow[bucket];
 
+    // Box width follows the font size, capped so it always fits the player.
+    // Two width-basis overrides (the displayed font size is unchanged):
+    //  - Shorts: every size uses the SMALL font so the box always clears the
+    //    fixed right-side action buttons (bigger fonts just wrap to more lines).
+    //  - Normal video, large font: uses the MEDIUM font's width so large keeps
+    //    its size but isn't any wider than medium.
+    // Width is also trimmed a few characters: Shorts (all sizes) and normal
+    // video medium/large.
+    const isShorts = location.pathname.startsWith('/shorts/');
+    let widthEm = CFG.textWidthEm;
+    if (isShorts) widthEm -= CFG.shortsWidthReductionEm;
+    else if (settings.textSize === 'large') widthEm -= CFG.normalWideReductionEm - 1; // 1 char wider than medium
+    else if (settings.textSize === 'medium') widthEm -= CFG.normalWideReductionEm;
+    const widthFontPx = isShorts
+      ? CFG.fontSizePx.small[bucket]
+      : settings.textSize === 'large'
+        ? CFG.fontSizePx.medium[bucket]
+        : fontSizePx;
     const maxAvailableWidth = Math.max(0, playerWidth - CFG.playerPaddingPx);
-    const widthFloor = ({ small: 16, medium: 18, large: 20 }[settings.textSize] || 16);
-    const fontForWidth = clamp(rawFont, widthFloor, 32);
-    const maxW = Math.min(CFG.maxTextWidthPx[settings.textSize] || CFG.maxTextWidthPx.medium, maxAvailableWidth);
-    const textWidthPx = clamp(
-      Math.round(fontForWidth * CFG.textWidthEm),
-      Math.min(CFG.minTextWidthPx, maxAvailableWidth),
-      maxW
-    );
+    const textWidthPx = Math.min(Math.round(widthFontPx * widthEm), maxAvailableWidth);
 
     return {
       textWidthPx,
@@ -687,15 +713,42 @@
       const videoOffsetInPlayer = vr.top - pr.top;
       const isShorts = location.pathname.startsWith('/shorts/');
       if (isShorts) {
-        // Tall Shorts videos: place the box CENTER at y% of video height so
-        // top/bottom positions are mirror-symmetric and middle is true center.
-        // Top 3 positions (rawY <= 30) get nudged up by 2 lines worth of
-        // caption height so they sit closer to the top edge.
-        const shiftLines = rawY <= 30 ? -4 : rawY >= 92 ? 0.75 : 0;
-        const shiftPx = shiftLines * (layout.fontSizePx || 0) * (layout.lineHeight || 1.4);
-        const centerPx = Math.round(videoOffsetInPlayer + (y / 100) * vr.height + shiftPx);
-        node.style.top = centerPx + 'px';
-        node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
+        const fontLinePx = (layout.fontSizePx || 0) * (layout.lineHeight || 1.4);
+        // Top/bottom edges are positioned from the SMALL font as a fixed
+        // reference so they don't move with the selected font size — larger
+        // fonts just grow toward the middle instead of past the edge.
+        const refLinePx = CFG.fontSizePx.small[widthBucket(playerEl.clientWidth || pr.width)] * (layout.lineHeight || 1.4);
+        const oneLineBoxPx = refLinePx + 4; // + 2px top/bottom padding
+        if (rawY >= 92) {
+          // Lowest position: bottom-anchor like normal-video bottom captions so
+          // 2- and 3-line captions grow UPWARD and never drop below where a
+          // 1-line caption sits — keeps them clear of the subscribe/action
+          // buttons.
+          const centerPx = videoOffsetInPlayer + (y / 100) * vr.height + 0.75 * refLinePx;
+          node.style.top = 'auto';
+          node.style.bottom = Math.round(pr.height - (centerPx + oneLineBoxPx / 2)) + 'px';
+          node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+        } else if (rawY <= 8) {
+          // Topmost position: top-anchor so 2- and 3-line captions grow DOWNWARD
+          // and never rise above the video's top edge. Lifted by the shared
+          // top-raise amount (see below).
+          const centerPx = videoOffsetInPlayer + (y / 100) * vr.height - 0.75 * refLinePx - CFG.shortsTopRaiseLines * refLinePx;
+          node.style.bottom = 'auto';
+          node.style.top = Math.round(centerPx - oneLineBoxPx / 2) + 'px';
+          node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
+        } else {
+          // Center-anchored positions. Base layout mirrors about the video's
+          // middle (remapped y% 18/82, 30/70, 40/60 already pair up; the small
+          // quarter-line nudge on rawY 18 mirrors rawY 82). The two upper
+          // positions (rawY 18, 30) are then lifted by the shared top-raise
+          // amount — in refLine units so all top 3 move equally and keep order.
+          // Bottom and middle positions are unchanged.
+          const shiftLines = rawY === 18 ? 0.25 : rawY === 82 ? -0.25 : 0;
+          const raisePx = rawY <= 30 ? CFG.shortsTopRaiseLines * refLinePx : 0;
+          const centerPx = Math.round(videoOffsetInPlayer + (y / 100) * vr.height + shiftLines * fontLinePx - raisePx);
+          node.style.top = centerPx + 'px';
+          node.style.transform = position.x === 'center' ? 'translate(-50%, -50%)' : 'translateY(-50%)';
+        }
       } else if (y > 50) {
         let bottomGapPx = Math.round(((100 - y) / 2 / 100) * vr.height);
         // Small clearance floor for the second-lowest position so the overlay
@@ -759,11 +812,27 @@
     }
 
     if (!STATE.resizeObserver && typeof ResizeObserver === 'function') {
-      STATE.resizeObserver = new ResizeObserver(() => {
-        if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
-        STATE.resizeTimerId = setTimeout(() => {
-          STATE.resizeTimerId = null;
-          rebuildChunksForLayout('resize');
+      STATE.resizeObserver = new ResizeObserver(entries => {
+        // The player resizes continuously during a fast window drag AND for
+        // several seconds while a freshly-opened video settles its layout.
+        // Read the size from contentRect (no forced reflow) to drop no-op
+        // notifications, then trailing-debounce the reflow-heavy layout work
+        // (getLayoutMetrics + applyLayout x2) so it runs ONCE after the size
+        // settles instead of every frame. Doing it per-notification saturates
+        // the main thread; this is also loop-safe (a re-triggered resize just
+        // resets the timer rather than doing work).
+        const cr = entries[entries.length - 1]?.contentRect;
+        const w = cr ? Math.round(cr.width) : 0;
+        const h = cr ? Math.round(cr.height) : 0;
+        if (w === STATE.lastResizeW && h === STATE.lastResizeH) return;
+        STATE.lastResizeW = w;
+        STATE.lastResizeH = h;
+        if (STATE.resizeLayoutTimerId) clearTimeout(STATE.resizeLayoutTimerId);
+        STATE.resizeLayoutTimerId = setTimeout(() => {
+          STATE.resizeLayoutTimerId = null;
+          mountOverlay();
+          renderCurrentCaption(true);
+          scheduleResizeRebuild();
         }, 120);
       });
       STATE.resizeObserver.observe(player);
@@ -892,6 +961,24 @@
       STATE.settings.allCaps ? 'caps' : 'normal',
       DEBUG.enabled ? 'debug' : 'normal',
     ].join('|');
+  }
+
+  function scheduleResizeRebuild() {
+    if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
+    STATE.resizeTimerId = setTimeout(() => {
+      STATE.resizeTimerId = null;
+      if (!STATE.words.length || !STATE.layout) return;
+      if (STATE.chunks.length && getChunkBuildSignature() === STATE.chunkBuildSignature) {
+        pushTimingRecord('chunk_build_skip', {
+          reason: 'resize_settled',
+          wordCount: STATE.words.length,
+          cause: 'unchanged',
+        });
+        renderCurrentCaption(true);
+        return;
+      }
+      rebuildChunksForLayout('resize_settled');
+    }, 400);
   }
 
   async function rebuildChunksForLayout(reason = 'unknown', deferOverlay = false) {
@@ -2081,6 +2168,7 @@ async function chunkWords(words, cfg, requestId) {
     clearNavRetry();
     clearTriggerRetry();
     if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
+    if (STATE.resizeLayoutTimerId) clearTimeout(STATE.resizeLayoutTimerId);
     if (STATE.resizeObserver) STATE.resizeObserver.disconnect();
     if (STATE.overlay && STATE.overlay.parentNode) STATE.overlay.parentNode.removeChild(STATE.overlay);
     if (STATE.measurer && STATE.measurer.parentNode) STATE.measurer.parentNode.removeChild(STATE.measurer);
@@ -2093,6 +2181,9 @@ async function chunkWords(words, cfg, requestId) {
     STATE.layout     = null;
     STATE.resizeObserver = null;
     STATE.resizeTimerId = null;
+    STATE.resizeLayoutTimerId = null;
+    STATE.lastResizeW = -1;
+    STATE.lastResizeH = -1;
     STATE.measureRange = null;
     STATE.words      = [];
     STATE.chunks     = [];
