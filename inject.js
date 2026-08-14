@@ -42,6 +42,14 @@
     playerPaddingPx: 32,
     lineHeight:    1.4,
     rebuildYieldMs: 50,
+    // Thresholds for linesWereFittedToAWidth. Each one rules out a population
+    // whose line breaks are the creator's own and must be kept.
+    fittedLines: {
+      minCaptionsWithBreak: 0.5,  // one line per caption is the lyric shape
+      minLines:              12,  // too little to judge, so assume authored
+      maxLengthSpread:      6.5,  // characters; verse lines follow the phrase
+      maxRepeatedLines:     0.2,  // a chorus repeats, a transcript does not
+    },
   };
 
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
@@ -99,6 +107,13 @@
   };
 
   function readSettings() {
+    // storage-bridge.js puts the saved settings on the document as soon as it can
+    // read them. They are the authority; localStorage is only a same-page cache
+    // for the case where the bridge has not reported yet.
+    const fromBridge = document.documentElement.dataset.ketuviaSettings;
+    if (fromBridge) {
+      try { return normalizeSettings(JSON.parse(fromBridge)); } catch {}
+    }
     try {
       const parsed = JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) || '{}');
       return normalizeSettings(parsed);
@@ -249,6 +264,161 @@
   window.ketuviaDownload = downloadKetuviaDebugBundle;
   window.ketuvia = downloadKetuviaDebugBundle;
 
+  // ===========================================================================
+  // Firefox-only caption-loading diagnostic. Runs ONLY on Firefox and ONLY
+  // while Debug mode is on. Records a single timeline that survives page
+  // refreshes (kept in sessionStorage), so refreshing, clicking, playing,
+  // waiting, and scrolling to the next video all land in one log. It samples
+  // state continuously and hooks user interactions, then auto-saves a JSON
+  // report when Debug is turned off or after a 60s budget. The goal is to see
+  // exactly what happened, when, and why captions did or did not load.
+  // ===========================================================================
+  const FFDIAG = {
+    isFirefox: /firefox/i.test(navigator.userAgent),
+    logKey: 'ketuviaFFDiagLog',
+    metaKey: 'ketuviaFFDiagMeta',
+    limitMs: 60000,
+    maxEntries: 3000,
+    sampleMs: 1500,
+    started: false,
+    sampleId: null,
+    pageT0: performance.now(),
+  };
+
+  function ffSafe(fn) { try { return fn(); } catch (e) { return 'ERR:' + e.message; } }
+  function ffMeta() { try { return JSON.parse(sessionStorage.getItem(FFDIAG.metaKey) || 'null'); } catch { return null; } }
+  function ffSetMeta(m) { try { sessionStorage.setItem(FFDIAG.metaKey, JSON.stringify(m)); } catch {} }
+  function ffSessionActive() { const m = ffMeta(); return Boolean(m && m.active); }
+  function ffElapsedMs() { const m = ffMeta(); return m && m.start ? Date.now() - m.start : 0; }
+
+  function ffLog(type, data) {
+    if (!FFDIAG.isFirefox || !ffSessionActive()) return;
+    let arr;
+    try { arr = JSON.parse(sessionStorage.getItem(FFDIAG.logKey) || '[]'); } catch { arr = []; }
+    arr.push({
+      ts: Date.now(),
+      sessionMs: ffElapsedMs(),
+      pageMs: Math.round(performance.now() - FFDIAG.pageT0),
+      page: location.pathname,
+      type,
+      ...(data || {}),
+    });
+    if (arr.length > FFDIAG.maxEntries) arr.splice(0, arr.length - FFDIAG.maxEntries);
+    try { sessionStorage.setItem(FFDIAG.logKey, JSON.stringify(arr)); } catch {}
+  }
+
+  function ffSnapshot() {
+    const video = document.querySelector('video');
+    const player = getPlayerElement();
+    const presp = player && typeof player.getPlayerResponse === 'function'
+      ? ffSafe(() => player.getPlayerResponse()) : null;
+    const interceptorMs = typeof window.__ketuviaInterceptorMs === 'number' ? window.__ketuviaInterceptorMs : null;
+    const overlay = document.getElementById('rechunk-overlay');
+    const ttRes = ffSafe(() => performance.getEntriesByType('resource')
+      .filter(e => /timedtext/.test(e.name))
+      .map(e => ({
+        startMs: Math.round(e.startTime),
+        endMs: Math.round(e.responseEnd),
+        // The decisive race signal: did YouTube's request fire BEFORE our
+        // fetch/XHR interceptor was installed (so we could never catch it)?
+        beforeInterceptor: interceptorMs != null ? e.startTime < interceptorMs : null,
+      })));
+    return {
+      videoId: ffSafe(() => currentVideoId()),
+      stateVideoId: STATE.videoId,
+      asrLang: STATE.asrLang,
+      enabled: STATE.enabled,
+      triggered: STATE.triggered,
+      triggerAttempts: STATE.triggerAttempts,
+      statusMode: STATE.statusMode,
+      words: STATE.words.length,
+      chunks: STATE.chunks.length,
+      nativeCaptionsEnabled: ffSafe(() => areNativeCaptionsEnabled()),
+      interceptorInstalledMs: interceptorMs,
+      fetchPatched: ffSafe(() => !/\[native code\]/.test(String(window.fetch))),
+      timedtextRequestCount: STATE.timedtextRequestCount,
+      timedtextResponseCount: STATE.timedtextResponseCount,
+      lastTimedtextLen: window.__ketuviaLastTimedtext && window.__ketuviaLastTimedtext.text
+        ? window.__ketuviaLastTimedtext.text.length
+        : (window.__ketuviaLastTimedtext ? -1 : 0),
+      perfTimedtextRequests: ttRes,
+      player: player ? {
+        id: player.id || null,
+        rect: ffSafe(() => { const r = player.getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height) }; }),
+        captionsOptions: typeof player.getOptions === 'function' ? ffSafe(() => player.getOptions('captions')) : 'no-getOptions',
+        currentTrack: typeof player.getOption === 'function' ? ffSafe(() => player.getOption('captions', 'track')) : 'no-getOption',
+        playerResponseTracks: ffSafe(() => presp.captions.playerCaptionsTracklistRenderer.captionTracks
+          .map(t => ({ lang: t.languageCode, kind: t.kind, hasUrl: Boolean(t.baseUrl) }))),
+        playerResponseVideoId: presp ? ffSafe(() => presp.videoDetails.videoId) : null,
+      } : null,
+      ytInitialHasTracks: ffSafe(() => Boolean(window.ytInitialPlayerResponse.captions.playerCaptionsTracklistRenderer.captionTracks.length)),
+      ytInitialVideoId: ffSafe(() => window.ytInitialPlayerResponse.videoDetails.videoId),
+      video: video ? { paused: video.paused, currentTime: Math.round((video.currentTime || 0) * 10) / 10, readyState: video.readyState } : null,
+      overlay: overlay ? { present: true, dataEmpty: overlay.dataset.empty, text: (overlay.textContent || '').slice(0, 60) } : { present: false },
+      ccButtonAria: ffSafe(() => { const b = document.querySelector('.ytp-subtitles-button'); return b ? b.getAttribute('aria-pressed') : null; }),
+    };
+  }
+
+  function ffFinalizeAndDownload(reason) {
+    if (!FFDIAG.isFirefox) return;
+    const m = ffMeta();
+    if (!m || !m.active) return;
+    ffSetMeta({ ...m, active: false }); // stop further logging across all pages
+    if (FFDIAG.sampleId) { clearInterval(FFDIAG.sampleId); FFDIAG.sampleId = null; }
+    ffLog('session_end', { reason, snapshot: ffSnapshot() });
+    let arr = [];
+    try { arr = JSON.parse(sessionStorage.getItem(FFDIAG.logKey) || '[]'); } catch {}
+    const report = {
+      kind: 'ketuvia-firefox-caption-diagnostic',
+      reason,
+      generatedAt: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      sessionStart: m.start ? new Date(m.start).toISOString() : null,
+      sessionDurationMs: m.start ? Date.now() - m.start : null,
+      entryCount: arr.length,
+      entries: arr,
+    };
+    downloadTextFile(`${getDebugFileId()}-firefox-caption-diagnostic.json`, JSON.stringify(report, null, 2), 'application/json');
+    try { sessionStorage.removeItem(FFDIAG.logKey); } catch {}
+  }
+
+  function ffStart() {
+    if (!FFDIAG.isFirefox || FFDIAG.started || !ffSessionActive()) return;
+    FFDIAG.started = true;
+    if (ffElapsedMs() >= FFDIAG.limitMs) { ffFinalizeAndDownload('time_limit'); return; }
+
+    ffLog('page_load', { readyState: document.readyState, snapshot: ffSnapshot() });
+    // Extra early snapshots to catch the initial-request race window.
+    setTimeout(() => ffLog('early_500ms', { snapshot: ffSnapshot() }), 500);
+    setTimeout(() => ffLog('early_2000ms', { snapshot: ffSnapshot() }), 2000);
+
+    FFDIAG.sampleId = setInterval(() => {
+      if (!ffSessionActive()) { clearInterval(FFDIAG.sampleId); FFDIAG.sampleId = null; return; }
+      if (ffElapsedMs() >= FFDIAG.limitMs) { ffFinalizeAndDownload('time_limit'); return; }
+      ffLog('sample', { snapshot: ffSnapshot() });
+    }, FFDIAG.sampleMs);
+
+    document.addEventListener('click', (e) => {
+      const t = e.target;
+      const btn = t && t.closest ? t.closest('button, .ytp-button, a, [role=button]') : null;
+      ffLog('user_click', {
+        target: t && t.tagName ? t.tagName.toLowerCase() : null,
+        label: btn ? (btn.getAttribute('aria-label') || btn.getAttribute('title') || (btn.className || '').toString().slice(0, 60)) : null,
+        isCC: Boolean(t && t.closest && t.closest('.ytp-subtitles-button')),
+      });
+    }, true);
+    const video = document.querySelector('video');
+    if (video) {
+      video.addEventListener('play', () => ffLog('video_play', { currentTime: Math.round((video.currentTime || 0) * 10) / 10 }), true);
+      video.addEventListener('pause', () => ffLog('video_pause', {}), true);
+    }
+    for (const ev of ['yt-navigate-start', 'yt-navigate-finish']) {
+      document.addEventListener(ev, () => ffLog(ev, { path: location.pathname }), true);
+    }
+    document.addEventListener('visibilitychange', () => ffLog('visibilitychange', { hidden: document.hidden }), true);
+    window.addEventListener('beforeunload', () => ffLog('page_unload', { snapshot: ffSnapshot() }), true);
+  }
+
   document.documentElement.addEventListener('ketuvia-debug-change', () => {
     const wasEnabled = DEBUG.enabled;
     DEBUG.enabled = document.documentElement.dataset.ketuviaDebug === '1';
@@ -259,6 +429,15 @@
         videoId: currentVideoId() || STATE.videoId || null,
         pageUrl: location.href,
       });
+      // Begin a fresh Firefox diagnostic session (survives refreshes).
+      if (FFDIAG.isFirefox && !ffSessionActive()) {
+        ffSetMeta({ active: true, start: Date.now() });
+        ffLog('session_start', { pageUrl: location.href, snapshot: ffSnapshot() });
+        ffStart();
+      }
+    }
+    if (!DEBUG.enabled && wasEnabled) {
+      ffFinalizeAndDownload('debug_off');
     }
     if (DEBUG.enabled && STATE.words.length) {
       rebuildChunksForLayout('debug_enabled');
@@ -370,6 +549,12 @@
     setEnabled(document.documentElement.dataset.ketuviaEnabled !== '0');
   });
 
+  document.documentElement.addEventListener('ketuvia-settings-sync', () => {
+    const raw = document.documentElement.dataset.ketuviaSettings;
+    if (!raw) return;
+    try { applySettings(JSON.parse(raw)); } catch {}
+  });
+
   function applySettings(nextSettings) {
     const previousSettings = STATE.settings;
     STATE.settings = normalizeSettings(nextSettings);
@@ -451,6 +636,7 @@
       ...detail,
     };
     pushDebugRecord('caption_load', payload);
+    ffLog('caption_load', payload);
   }
 
   function clamp(n, min, max) {
@@ -928,7 +1114,16 @@
 
   function rebuildChunksAfterFontReady() {
     const player = mountOverlay({ skipOverlayLayout: true });
-    if (!player || !STATE.words.length) return;
+    if (!player || !STATE.words.length) {
+      // The overlay layout is normally applied at the end of the rebuild, to
+      // avoid a flash of the wrong line count while the font loads. With no
+      // transcript there is no rebuild and nothing to flash, so apply it now:
+      // otherwise the new appearance sits in STATE until some unrelated event
+      // (a resize, the next video) happens to flush it, which looks to the user
+      // like the setting did nothing.
+      applyOverlayLayoutNow();
+      return;
+    }
 
     const requestId = ++STATE.fontLoadRequestId;
     const layout = STATE.layout;
@@ -981,9 +1176,18 @@
     }, 400);
   }
 
+  // Push the current layout onto the overlay. Used when a rebuild cannot run, so
+  // that an appearance change still reaches the screen.
+  function applyOverlayLayoutNow() {
+    if (STATE.overlay && STATE.layout) applyLayout(STATE.overlay, STATE.layout);
+  }
+
   async function rebuildChunksForLayout(reason = 'unknown', deferOverlay = false) {
     const player = mountOverlay({ skipOverlayLayout: deferOverlay });
-    if (!player || !STATE.words.length) return;
+    if (!player || !STATE.words.length) {
+      if (deferOverlay) applyOverlayLayoutNow();
+      return;
+    }
 
     const signature = getChunkBuildSignature();
     if (STATE.chunks.length && signature === STATE.chunkBuildSignature) {
@@ -1184,6 +1388,7 @@
       length: text.length,
       atMs: Math.round(performance.now()),
     };
+    ffLog('timedtext_intercepted', { vid, len: text.length, responseCount: STATE.timedtextResponseCount });
     window.__ketuviaLastTimedtext = {
       videoId: vid,
       url,
@@ -1312,6 +1517,17 @@
 
       return _XHRSend.apply(this, args);
     };
+
+  // Mark when our fetch/XHR interceptor finished installing (only during a
+  // Firefox diagnostic session). Comparing this against the timedtext request's
+  // start time in performance entries reveals whether YouTube's request fired
+  // before we could patch — the core of the refresh race.
+  try {
+    if (FFDIAG.isFirefox && ffSessionActive()) {
+      window.__ketuviaInterceptorMs = Math.round(performance.now());
+      ffLog('interceptor_installed', { atMs: window.__ketuviaInterceptorMs });
+    }
+  } catch {}
 
   function processTimedtext(text) {
     let data;
@@ -1590,11 +1806,60 @@
   } else {
     checkNavigation();
   }
+
+  // Resume the Firefox diagnostic on this fresh page load if a session is still
+  // active (it persists in sessionStorage across refreshes). Runs from the very
+  // start of the page so the initial-request race window is captured.
+  ffStart();
   document.addEventListener('yt-navigate-start',  () => { if (STATE.videoId && currentVideoId() !== STATE.videoId) resetForNewVideo(); }, true);
   document.addEventListener('yt-navigate-finish', () => {
     pushTimingRecord('navigate_finish', { videoId: currentVideoId() || null });
     setTimeout(checkNavigation, 0);
   }, true);
+
+  // Whether a manual track's line breaks came from a tool fitting the text to a
+  // fixed width, rather than from the creator. Obeying a fitter's breaks lays our
+  // captions out for someone else's box: each one holds half a wrapped block, so
+  // it cannot fill the chosen number of lines and strands a word or two on the
+  // last one.
+  //
+  // Three questions, each ruling out a kind of writing whose breaks are real:
+  //   1. Do most captions even contain a break? Lyrics almost always give one
+  //      line per caption, so there is no internal layout to attribute to a tool.
+  //   2. Are the lines all about the same length? That is what fitting to a width
+  //      means. Verse lines are as long as the phrase, so they vary.
+  //   3. Does the text repeat itself? Sung verse can have short even lines, but
+  //      it has a chorus. A transcript does not say the same line twice.
+  function linesWereFittedToAWidth(textEvents, cfg) {
+    if (!textEvents.length) return false;
+
+    let withBreak = 0;
+    const lines = [];
+    for (const item of textEvents) {
+      if (item.text.includes('\n')) withBreak += 1;
+      for (const line of item.text.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed) lines.push(trimmed);
+      }
+    }
+    if (withBreak / textEvents.length <= cfg.minCaptionsWithBreak) return false;
+    if (lines.length < cfg.minLines) return false;
+
+    const mean = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
+    const spread = Math.sqrt(
+      lines.reduce((sum, line) => sum + (line.length - mean) * (line.length - mean), 0) / lines.length
+    );
+    if (spread >= cfg.maxLengthSpread) return false;
+
+    const seen = new Map();
+    for (const line of lines) {
+      const key = line.toLowerCase().replace(/[^a-z ]/g, '');
+      seen.set(key, (seen.get(key) || 0) + 1);
+    }
+    let repeated = 0;
+    for (const count of seen.values()) if (count > 1) repeated += count;
+    return repeated / lines.length < cfg.maxRepeatedLines;
+  }
 
   function getTextEventInfo(json3) {
     const events = json3.events || [];
@@ -1620,10 +1885,15 @@
       timedWindowEvents === 0 &&
       singleSegmentEvents / textEvents.length >= 0.9;
 
+    // Word-timed tracks carry no creator line breaks, so there is nothing to keep.
+    const linesAreAuthored =
+      !manualCaptionLike || !linesWereFittedToAWidth(textEvents, CFG.fittedLines);
+
     return {
       events,
       textEvents,
       newlineEventCount,
+      linesAreAuthored,
       sourceKind: manualCaptionLike ? 'manual_event_captions' : 'word_timed_captions',
     };
   }
@@ -1637,6 +1907,7 @@
           textEventCount: eventInfo.textEvents.length,
           newlineEventCount: eventInfo.newlineEventCount,
           sourceKind: eventInfo.sourceKind,
+          linesAreAuthored: eventInfo.linesAreAuthored,
           inputSegCount: 0,
           outputTokenCount: 0,
           multiWordSegCount: 0,
@@ -1698,7 +1969,7 @@
                 text: lineWords[wi],
                 eventIndex: syntheticEventIndex,
                 sourceKind: eventInfo.sourceKind,
-                preserveEventBoundary: true,
+                preserveEventBoundary: eventInfo.linesAreAuthored,
               });
               if (debug && debug.samples.length < 30) {
                 debug.samples.push({

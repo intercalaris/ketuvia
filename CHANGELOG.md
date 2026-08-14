@@ -19,6 +19,27 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.1.0
+- **Fix: popup settings did nothing for some users.** Reported by a Firefox user whose captions worked and whose popup looked normal, but where only On/Off and Reset had any effect.
+
+  **The bug:** On/Off and Debug were written to `chrome.storage`, picked up by `storage-bridge.js`, and applied in every tab. Everything else went through `runInTab()`, which called `chrome.scripting.executeScript` into the MAIN world of *the active tab of the current window*, and ended in `catch { return null; }`. Three things made that return null on a perfectly healthy install: no tab id, the injected function's own `isYouTube` guard, and destructuring an empty result array. All were swallowed silently. It failed in both directions, so the popup could not read the current settings either, which is why it always displayed the defaults.
+
+  **The fix:** settings now travel exactly like the On/Off state. The popup writes them to `chrome.storage.local`, `storage-bridge.js` hands them to the page on the document, and `inject.js` applies them. No injection, no MAIN world, no active-tab targeting, and a change now applies to every open YouTube tab instead of one. `runInTab` and the `getActiveTab` helper are gone, and the four duplicated settings handlers collapse into one `changeSettings` call.
+
+- **Fix: an appearance change could be dropped until something else happened.** `applySettings` hands off to a rebuild that starts with `if (!player || !STATE.words.length) return;`, and on a font change the overlay restyle is deliberately deferred until after the rebuild to avoid a flash of the wrong line count. When no transcript had been captured yet there was no rebuild, so the new appearance stayed in `STATE` and only reached the screen when an unrelated event, a window resize or the next video, applied the layout. Both rebuild paths now apply the overlay layout when they cannot run, which keeps the anti-flash behaviour for the case it was written for.
+
+- Debug: a Firefox caption-loading diagnostic ships with this version. It is inert unless the user is on Firefox and turns Debug mode on, in which case it records a timeline that survives page refreshes and saves a JSON report when Debug mode is turned off again. Written to chase the refresh race where YouTube's `timedtext` request can fire before the fetch interceptor is installed.
+
+- Firefox: minimum version raised from 109 to 128. `inject.js` is declared `"world": "MAIN"`, which Firefox only supports from 128 (bug 1736575). Between 109 and 127 the add-on installed and did nothing at all, since it could not patch the page's `fetch`, read `ytInitialPlayerResponse`, or reach `player.setOption`.
+
+- Fix: creator-written captions that were wrapped by a tool now reflow to fill the chosen number of lines.
+
+  **Background:** 3.2.7 made the extension respect a creator's line breaks in manually written captions and never merge across them, so a music video's lyrics stay one line per caption. That relies on the line breaks being the creator's choice.
+
+  **The bug:** Many professionally captioned videos are not written line by line. The transcript is run through a tool that fits it to a fixed line width, typically 50 characters, and hands YouTube two-line blocks. Those breaks carry no meaning, but the extension treated them as intent, so a caption could never be more than half of one wrapped block. At medium and large text the block is wider than the caption box, so it spilled one or two words onto a second line and stopped there, and a three-line setting produced the same two lines as a two-line setting. Small text hid the problem because its box is wider than the source lines, and Cascadia hid it because a monospaced font overflows far enough that the split looks deliberate.
+
+  **The fix:** `linesWereFittedToAWidth` in `getTextEventInfo` asks three questions of a manual track, each ruling out a kind of writing whose line breaks are real. Do most captions contain a line break, which excludes the one-line-per-caption shape nearly every lyric track uses. Are the line lengths uniform, which excludes verse, whose lines are as long as the phrase. Does the text repeat itself, which excludes sung verse with short even lines, such as a chorus. Only when all three point the same way are the breaks discarded and the words handed to the normal chunk builder. Word timing is untouched either way.
+
 ### Version 4.0.0
 - **YouTube Shorts support.** Captions now work on Shorts, including scrolling from one Short to the next. Shorts deliver caption data only through the intercepted `timedtext` request (there is no `ytInitialPlayerResponse`), and the timedtext for the next Short arrives before the URL updates, so the interceptor now treats the timedtext response itself as the authoritative signal that a new video is loading and adopts it. The visible Shorts player is `#shorts-player` (the `#movie_player` element is 0x0), so the overlay now mounts on the `.html5-video-player` ancestor of the `<video>` element.
 - **Caption sizing rebuilt as a simple lookup.** The old stack of ratios, per-size scales, floors, and a separate width calculation is gone. Font size is now a flat lookup of 3 player-width buckets (small <700px, medium 700-1250px, large >=1250px) by 3 font settings, and the caption box width is just the font size times a fixed em count, capped to fit the player. Each of the nine cells is independently tunable with no cross-coupling.

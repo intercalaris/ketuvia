@@ -12,7 +12,8 @@ const ketuviaOn = document.getElementById('ketuvia-on');
 const ketuviaOff = document.getElementById('ketuvia-off');
 const capsToggle = document.getElementById('caps-toggle');
 const reset = document.getElementById('reset');
-const ENABLED_STORAGE_KEY = 'ketuviaEnabled';
+const ENABLED_STORAGE_KEY  = 'ketuviaEnabled';
+const SETTINGS_STORAGE_KEY = 'ketuviaSettings';
 const DEBUG_STORAGE_KEY = 'ketuviaDebug';
 const debugStorage = chrome.storage.local;
 
@@ -45,11 +46,6 @@ function normalizeSettings(settings) {
   return { textSize, targetLines, background, position, font, allCaps };
 }
 
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab;
-}
-
 async function getGlobalEnabled() {
   const items = await chrome.storage.local.get({ [ENABLED_STORAGE_KEY]: true });
   return items[ENABLED_STORAGE_KEY] !== false;
@@ -59,52 +55,43 @@ async function setGlobalEnabled(enabled) {
   await chrome.storage.local.set({ [ENABLED_STORAGE_KEY]: Boolean(enabled) });
 }
 
-async function runInTab(payload = {}) {
-  const tab = await getActiveTab();
-  if (!tab?.id) return null;
+// Settings travel the same way the on/off state does: written to storage here,
+// handed to the page by storage-bridge.js. That reaches every YouTube tab rather
+// than one, and does not depend on injecting into the active tab, which fails
+// silently whenever the active tab is not the one playing the video.
+async function loadSettings() {
+  const items = await chrome.storage.local.get({ [SETTINGS_STORAGE_KEY]: null });
+  return normalizeSettings(items[SETTINGS_STORAGE_KEY]);
+}
 
-  let result = null;
+async function saveSettings(settings) {
+  await chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settings });
+}
+
+// The settings the popup is currently showing, with the one just changed applied.
+function currentSettings(overrides) {
+  const valueOf = name =>
+    document.querySelector(`[data-setting="${name}"] button[data-active="1"]`)?.dataset.value;
+
+  return normalizeSettings({
+    textSize: valueOf('textSize'),
+    targetLines: valueOf('targetLines'),
+    background: valueOf('background'),
+    position: document.querySelector('.position-grid button[data-active="1"]')?.dataset.value,
+    font: document.querySelector('.font-list button[data-active="1"]')?.dataset.value,
+    allCaps: capsToggle.checked,
+    ...overrides,
+  });
+}
+
+async function changeSettings(overrides) {
+  const next = currentSettings(overrides);
+  renderSettings(next);
   try {
-    [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      world: 'MAIN',
-      func: nextPayload => {
-        const host = window.location.hostname;
-        const isYouTube = host === 'youtube.com' ||
-          host === 'www.youtube.com' ||
-          host === 'm.youtube.com';
-
-        if (!isYouTube) return null;
-
-        if (nextPayload.settings) {
-          if (typeof window.__ketuviaApplySettings === 'function') {
-            window.__ketuviaApplySettings(nextPayload.settings);
-          } else {
-            window.dispatchEvent(new CustomEvent('ketuvia-settings-change', {
-              detail: nextPayload.settings,
-            }));
-          }
-        }
-
-        if (typeof nextPayload.debug === 'boolean') {
-          window.__ketuviaDebugEnabled = nextPayload.debug;
-          window.dispatchEvent(new CustomEvent('ketuvia-debug-change', {
-            detail: { enabled: nextPayload.debug },
-          }));
-        }
-
-        return {
-          debug: Boolean(window.__ketuviaDebugEnabled),
-          settings: window.__ketuviaSettings || null,
-        };
-      },
-      args: [payload],
-    });
+    await saveSettings(next);
   } catch {
-    return null;
+    renderSettings(await loadSettings());
   }
-
-  return result;
 }
 
 function renderSettings(settings) {
@@ -136,75 +123,30 @@ function renderEnabled(enabled) {
   ketuviaOff.dataset.active = enabled ? '0' : '1';
 }
 
-async function syncFromTab() {
+async function syncFromStorage() {
   renderEnabled(await getGlobalEnabled());
 
   const items = await debugStorage.get({ [DEBUG_STORAGE_KEY]: false });
   toggle.checked = items[DEBUG_STORAGE_KEY] === true;
 
-  const result = await runInTab();
-  if (!result) return;
-  renderSettings(result.settings);
+  renderSettings(await loadSettings());
 }
 
 document.querySelectorAll('.segments:not(.ketuvia-segments) button').forEach(button => {
-  button.addEventListener('click', async () => {
-    const group = button.closest('.segments');
-    const next = normalizeSettings({
-      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
-      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
-      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
-      position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
-      font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
-      allCaps: document.getElementById('caps-toggle')?.checked,
-      [group.dataset.setting]: button.dataset.value,
-    });
-
-    renderSettings(next);
-    const result = await runInTab({ settings: next });
-    if (result?.settings) {
-      renderSettings(result.settings);
-    }
-  });
+  button.addEventListener('click', () => changeSettings({
+    [button.closest('.segments').dataset.setting]: button.dataset.value,
+  }));
 });
 
 document.querySelectorAll('.position-grid button').forEach(button => {
-  button.addEventListener('click', async () => {
-    const next = normalizeSettings({
-      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
-      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
-      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
-      font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
-      allCaps: document.getElementById('caps-toggle')?.checked,
-      position: button.dataset.value,
-    });
-
-    renderSettings(next);
-    const result = await runInTab({ settings: next });
-    if (result?.settings) {
-      renderSettings(result.settings);
-    }
-  });
+  button.addEventListener('click', () => changeSettings({ position: button.dataset.value }));
 });
 
 document.querySelectorAll('.font-list button').forEach(button => {
-  button.addEventListener('click', async () => {
-    const next = normalizeSettings({
-      textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
-      targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
-      background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
-      position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
-      font: button.dataset.value,
-      allCaps: document.getElementById('caps-toggle')?.checked,
-    });
-
-    renderSettings(next);
-    const result = await runInTab({ settings: next });
-    if (result?.settings) {
-      renderSettings(result.settings);
-    }
-  });
+  button.addEventListener('click', () => changeSettings({ font: button.dataset.value }));
 });
+
+capsToggle.addEventListener('change', () => changeSettings({ allCaps: capsToggle.checked }));
 
 reset.addEventListener('click', async () => {
   renderSettings(DEFAULT_SETTINGS);
@@ -212,27 +154,7 @@ reset.addEventListener('click', async () => {
   renderEnabled(true);
   await setGlobalEnabled(true);
   await debugStorage.set({ [DEBUG_STORAGE_KEY]: false });
-  const result = await runInTab({ settings: DEFAULT_SETTINGS });
-  if (result?.settings) {
-    renderSettings(result.settings);
-  }
-});
-
-capsToggle.addEventListener('change', async () => {
-  const next = normalizeSettings({
-    textSize: document.querySelector('[data-setting="textSize"] button[data-active="1"]')?.dataset.value,
-    targetLines: document.querySelector('[data-setting="targetLines"] button[data-active="1"]')?.dataset.value,
-    background: document.querySelector('[data-setting="background"] button[data-active="1"]')?.dataset.value,
-    position: document.querySelector('[data-setting="position"] button[data-active="1"]')?.dataset.value,
-    font: document.querySelector('[data-setting="font"] button[data-active="1"]')?.dataset.value,
-    allCaps: capsToggle.checked,
-  });
-
-  renderSettings(next);
-  const result = await runInTab({ settings: next });
-  if (result?.settings) {
-    renderSettings(result.settings);
-  }
+  await saveSettings(DEFAULT_SETTINGS);
 });
 
 toggle.addEventListener('change', async () => {
@@ -256,4 +178,4 @@ ketuviaOn.addEventListener('click', () => updateEnabled(true));
 ketuviaOff.addEventListener('click', () => updateEnabled(false));
 
 renderSettings(DEFAULT_SETTINGS);
-syncFromTab().catch(() => {});
+syncFromStorage().catch(() => {});
