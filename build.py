@@ -9,7 +9,9 @@ DIST.mkdir(exist_ok=True)
 with open(ROOT / 'manifest.json', encoding='utf-8') as f:
     version = json.load(f)['version']
 
-SOURCE_FILES = ['manifest.json', 'inject.js', 'storage-bridge.js', 'overlay.css', 'popup.html', 'popup.css', 'popup.js']
+SOURCE_FILES = ['manifest.json', 'inject.js', 'storage-bridge.js', 'overlay.css',
+                'popup.html', 'popup.css', 'popup.js', 'background.js',
+                'welcome.html', 'welcome.css', 'welcome.js']
 SOURCE_DIRS  = ['icons', 'fonts']
 
 FIREFOX_ADDON_ID = 'ketuvia@intercalaris'
@@ -55,6 +57,9 @@ def build_firefox():
     # Patch manifest.json: add gecko browser_specific_settings
     mf_path = d / 'manifest.json'
     mf = json.loads(mf_path.read_text(encoding='utf-8'))
+    # Firefox has no background service worker; it uses an event page.
+    mf['background'] = {'scripts': ['background.js']}
+
     mf['browser_specific_settings'] = {
         'gecko': {
             'id': FIREFOX_ADDON_ID,

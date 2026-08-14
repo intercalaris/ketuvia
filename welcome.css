@@ -1,0 +1,80 @@
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("fonts/Atkinson_Hyperlegible/regular.ttf") format("truetype");
+  font-weight: 400;
+}
+
+:root { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #0c0d09;
+  color: #c8c6bc;
+  font: 15px/1.5 "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+
+/* One card, matching the settings panel: same background, same border colour. */
+main {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  max-width: 760px;
+  padding: 24px 26px;
+  background: #14150e;
+  border: 1px solid #2a2d20;
+  border-radius: 12px;
+}
+
+.text { flex: 1; min-width: 0; }
+
+h1 { margin: 0 0 10px; font-size: 20px; font-weight: 700; color: #e6e3d5; }
+p { margin: 0 0 10px; }
+.dim { color: #8f8d82; font-size: 14px; }
+
+/* The one action they have to remember to take. */
+strong {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #33371f;
+  color: #e8e4c8;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#close {
+  margin-top: 6px;
+  padding: 7px 16px;
+  border: 1px solid #2a2d20;
+  border-radius: 7px;
+  background: #d8d3b8;
+  color: #14150e;
+  font: inherit;
+  cursor: pointer;
+}
+#close:hover { filter: brightness(1.08); }
+
+/* The real settings panel, live, so it can be used from here. */
+.panel {
+  flex: 0 0 auto;
+  border: 1px solid #2a2d20;
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+.panel iframe { width: 329px; height: 430px; border: 0; }
+
+/* welcome.js shows only the wording for the browser in use. */
+.ff, .cr { display: none; }
+body[data-browser="firefox"] .ff,
+body[data-browser="chrome"] .cr { display: block; }
+
+@media (max-width: 720px) {
+  main { flex-direction: column; }
+}

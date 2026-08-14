@@ -36,7 +36,9 @@
         "*://www.youtube.com/*",
         "*://m.youtube.com/*"
       ],
-      "js": ["storage-bridge.js"],
+      "js": [
+        "storage-bridge.js"
+      ],
       "run_at": "document_start",
       "world": "ISOLATED",
       "all_frames": false
@@ -46,8 +48,12 @@
         "*://www.youtube.com/*",
         "*://m.youtube.com/*"
       ],
-      "js": ["inject.js"],
-      "css": ["overlay.css"],
+      "js": [
+        "inject.js"
+      ],
+      "css": [
+        "overlay.css"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": false
@@ -63,5 +69,8 @@
         "<all_urls>"
       ]
     }
-  ]
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
 }
