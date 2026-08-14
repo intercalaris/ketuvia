@@ -35,7 +35,10 @@
 }
 
 body {
-  margin: 0;
+  /* Centres itself when the same page is shown as the add-on's Options panel,
+     which is wider than the toolbar popup. No effect in the popup, where the
+     window is exactly this wide. */
+  margin: 0 auto;
   width: 274px;
   color: #c8c6bc;
   background: #0c0d09;

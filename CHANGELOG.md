@@ -19,6 +19,9 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.1.1
+- Settings are now reachable from the browser's own add-ons manager, not only from the toolbar icon. `options_ui` points at the same panel, so Firefox shows it under the three dots in about:addons and Chrome shows it under Details. A user reported hunting there first, finding no Options entry, and concluding the extension had no settings at all. This only became possible in 4.1.0: before then the panel needed a YouTube tab in focus to do anything, so opening it from the add-ons page would have done nothing.
+
 ### Version 4.1.0
 - **Fix: popup settings did nothing for some users.** Reported by a Firefox user whose captions worked and whose popup looked normal, but where only On/Off and Reset had any effect.
 
