@@ -131,6 +131,11 @@
   text-align: inherit;
 }
 
+/* Even out the rows when a creator's own line overflows the box. */
+#rechunk-overlay[data-creator-line="1"] .rechunk-text {
+  text-wrap: balance;
+}
+
 #rechunk-measurer {
   position: absolute;
   left: 50%;

@@ -19,6 +19,11 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.1.2
+- Fix: a creator's caption line that is wider than the caption box no longer strands one or two words on the last row. Those captions now wrap evenly instead of filling the first row and spilling the remainder. Only captions that are a single creator-written line are affected, so captions the extension groups itself are untouched.
+- Fix: when a creator's line is too long to fit even one caption, it is split into equal parts rather than filling the first and leaving a word alone in the next.
+- Neither fix merges text across a creator's line break, so lyrics and verse keep their lines and nothing moves into an earlier caption.
+
 ### Version 4.1.1
 - Settings are now reachable from the browser's own add-ons manager, not only from the toolbar icon. `options_ui` points at the same panel, so Firefox shows it under the three dots in about:addons and Chrome shows it under Details. A user reported hunting there first, finding no Options entry, and concluding the extension had no settings at all. This only became possible in 4.1.0: before then the panel needed a YouTube tab in focus to do anything, so opening it from the add-ons page would have done nothing.
 

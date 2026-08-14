@@ -2146,6 +2146,8 @@ async function chunkWords(words, cfg, requestId) {
       pauseAfterMs,
       longPauseHideAtMs,
       longPauseGapMs,
+      // One line the creator wrote. If it overflows the box it gets an even wrap.
+      fromCreatorLine: meta.reason === 'manual_caption_event_boundary',
       text: displayText,
     });
     if (shouldDebug) {
@@ -2259,9 +2261,22 @@ async function chunkWords(words, cfg, requestId) {
     // No early break: use overflow boundary or end of captions.
     if (chosenEnd <= start) {
       if (overflowAt <= words.length && maxFit > start) {
-        const t = lastFitEnd === maxFit ? lastFitText : joinWords(words.slice(start, maxFit));
+        let end = maxFit;
+        // A creator's line too long for the box has to span several captions.
+        // Split it evenly, or the last one holds a word on its own.
+        if (words[start].preserveEventBoundary) {
+          let lineEnd = start;
+          while (lineEnd < words.length && words[lineEnd].eventIndex === words[start].eventIndex) lineEnd++;
+          const lineWords = lineEnd - start;
+          const perCaption = maxFit - start;
+          if (lineWords > perCaption) {
+            const captions = Math.ceil(lineWords / perCaption);
+            end = Math.min(start + Math.ceil(lineWords / captions), maxFit);
+          }
+        }
         reason = 'last_word_that_fits_before_overflow';
-        chosenEnd = maxFit; chosenText = t;
+        chosenEnd = end;
+        chosenText = (end === lastFitEnd && lastFitText) ? lastFitText : joinWords(words.slice(start, end));
       } else if (lastFitEnd > start) {
         const fi = fastLineInfo(start, lastFitEnd);
         const fakeLayout = fi ?? measureTextLayout(lastFitText);
@@ -2408,6 +2423,8 @@ async function chunkWords(words, cfg, requestId) {
       STATE.overlayText.textContent = active;
     }
     STATE.overlay.dataset.empty = active ? '0' : '1';
+    STATE.overlay.dataset.creatorLine =
+      activeIndex >= 0 && STATE.chunks[activeIndex]?.fromCreatorLine ? '1' : '0';
     if (active && activeIndex >= 0) {
       logRenderedChunk(activeIndex, STATE.chunks[activeIndex], activeWindow);
     }
