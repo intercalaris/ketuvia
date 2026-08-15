@@ -8,7 +8,7 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - Change: use original YouTube caption boundaries more intelligently for auto captions when they indicate speaker or utterance changes without explicit `>>` markers
 
 ## Tooling / Release Process
-- Fixed: removed version check from CI detect step. Previously CI compared the manifest version against the previous commit and failed if unchanged, forcing arbitrary bumps when a publish attempt failed. Now the stores themselves reject duplicate versions with a clear error, which is sufficient.
+- Proposed, not yet applied: remove the version check from the CI detect step. CI compares the manifest version against the previous commit and fails if unchanged, which forces an arbitrary bump when a publish attempt fails, and the stores already reject duplicate versions themselves. The edit exists in the working tree and is deliberately uncommitted pending a decision.
 - Release publishing is now controlled by commit-message keywords: `[chrome]`, `[firefox]`, `[chrome+firefox]`, or `[replace-chrome]`
 - Store publishing requires a manifest version bump; commits without release keywords do not publish to any store
 - `[replace-chrome]` cancels a pending Chrome Web Store review before uploading the new Chrome version
