@@ -643,9 +643,20 @@
     return Math.min(max, Math.max(min, n));
   }
 
+  // YouTube leaves a hidden 0x0 Shorts player in the page after you visit Shorts, and it can sit ahead of the real one, so the first video element is not a safe way to find the player.
   function getPlayerElement() {
-    const video = document.querySelector('video');
-    return video?.closest('.html5-video-player') || document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
+    const players = Array.from(document.querySelectorAll('.html5-video-player'));
+    const area = el => {
+      const r = el.getBoundingClientRect();
+      return r.width * r.height;
+    };
+    const onScreen = players.filter(el => area(el) > 0);
+    const pool = onScreen.length ? onScreen : players;
+    const wanted = location.pathname.startsWith('/shorts/') ? 'shorts-player' : 'movie_player';
+    return pool.find(el => el.id === wanted)
+      || pool.sort((a, b) => area(b) - area(a))[0]
+      || document.querySelector('#movie_player')
+      || null;
   }
 
   function getRuntimeConfig() {
@@ -953,6 +964,14 @@
     if (!player) {
       setTimeout(mountOverlay, 250);
       return null;
+    }
+
+    // Being somewhere in the document is not enough: an overlay left inside the hidden Shorts player renders at zero size.
+    if (STATE.overlay && STATE.overlay.parentElement !== player) {
+      player.appendChild(STATE.overlay);
+    }
+    if (STATE.measurer && STATE.measurer.parentElement !== player) {
+      player.appendChild(STATE.measurer);
     }
 
     if (!STATE.overlay || !document.body.contains(STATE.overlay)) {

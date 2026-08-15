@@ -19,6 +19,10 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.2.1
+- **Fix: captions invisible after moving between a Short and a normal video.** YouTube leaves a hidden 0x0 player in the page when you navigate between Shorts and watch pages, and it can sit ahead of the real one. The extension found the player through the first `video` element in the document, so it mounted the caption overlay inside the hidden one and everything rendered at zero size. Reported with two diagnostics: a watch page whose player was `shorts-player` at 0x0, and a Short whose player was `movie_player` at 0x0. The player is now chosen by taking the visible players and preferring the one that belongs to the current page, and the overlay moves if it ever finds itself in the wrong player.
+- The welcome page now appears on install and again only when the major version changes, so 4.2 to 4.3 is silent but 4.x to 5.0 says hello again. An older install carrying the plain seen flag is treated as having seen it for version 4.
+
 ### Version 4.2.0
 - **Text colour.** White, yellow, green and cyan, the four broadcast caption colours. Requested by a Firefox user who found white text hard to read against bright video.
 - **Text opacity.** 100%, 75% or 50%, separate from the background Shade, matching how YouTube's own caption settings treat font opacity and background opacity as different controls.

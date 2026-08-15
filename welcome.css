@@ -24,7 +24,7 @@ body {
 main {
   display: flex;
   gap: 28px;
-  align-items: flex-start;
+  align-items: stretch;
   max-width: 760px;
   padding: 24px 26px;
   background: #14150e;
@@ -32,7 +32,13 @@ main {
   border-radius: 12px;
 }
 
-.text { flex: 1; min-width: 0; }
+/* A column so the button can sit at the bottom, level with the settings panel beside it. */
+.text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
 
 h1 { margin: 0 0 10px; font-size: 20px; font-weight: 700; color: #e6e3d5; }
 p { margin: 0 0 10px; }
@@ -48,8 +54,10 @@ strong {
   white-space: nowrap;
 }
 
+/* Centred across the text column rather than hanging off its left edge. */
 #close {
-  margin-top: 6px;
+  align-self: center;
+  margin-top: auto;
   padding: 7px 16px;
   border: 1px solid #2a2d20;
   border-radius: 7px;
