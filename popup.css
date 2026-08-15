@@ -376,11 +376,19 @@ input:focus-visible + .switch {
   outline-offset: 2px;
 }
 
-#donate {
+#donate,
+#contact {
   color: inherit;
   text-decoration: none;
 }
 
-#donate:hover {
+#donate:hover,
+#contact:hover {
   color: #c9c7bc;
+}
+
+/* Quiet enough to read only when looked for. */
+#version {
+  color: #6f6e66;
+  font-size: 10.5px;
 }
