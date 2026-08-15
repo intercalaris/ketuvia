@@ -109,24 +109,28 @@ main {
   width: auto;
 }
 
-/* The top row obeys the same two columns, so All Caps and Reset line up with the right-hand column below. */
 .top-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  column-gap: 10px;
-  align-items: center;
-  margin-top: 0;
-}
-
-.top-right {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-top: 0;
+}
+
+/* Three toggles even across the cell, each label centred above its switch like every other setting. */
+.control-grid .toggle-cell {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: start;
   gap: 6px;
 }
 
-.top-row .caps-row {
-  gap: 5px;
+.toggle-half {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1 1 0;
+  gap: 3px;
 }
 
 .mini-setting {
@@ -222,6 +226,10 @@ main {
   font-size: 10.5px;
 }
 
+.width-setting .segments button {
+  font-size: 10.5px;
+}
+
 /* Colour swatches read as colour, so the label is the colour itself and the active one gets a ring. */
 .segments.swatches button {
   height: 15px;
@@ -230,10 +238,11 @@ main {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55);
 }
 
-.segments.swatches button[data-value="white"] { background: #ffffff; }
-.segments.swatches button[data-value="yellow"] { background: #ffff00; }
-.segments.swatches button[data-value="green"] { background: #00ff00; }
-.segments.swatches button[data-value="cyan"] { background: #00ffff; }
+/* Muted stand-ins for the pure caption colours, so the swatches sit in the palette instead of glowing against it. The captions themselves stay pure. */
+.segments.swatches button[data-value="white"] { background: #d9d7cb; }
+.segments.swatches button[data-value="yellow"] { background: #c9b64a; }
+.segments.swatches button[data-value="green"] { background: #71a763; }
+.segments.swatches button[data-value="cyan"] { background: #5da3a6; }
 
 .segments.swatches button[data-active="1"] {
   outline: 2px solid #c8c6bc;

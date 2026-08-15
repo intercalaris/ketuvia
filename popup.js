@@ -1,9 +1,19 @@
+async function syncFromStorage() {
+  renderEnabled(await getGlobalEnabled());
+  const items = await debugStorage.get({ [DEBUG_STORAGE_KEY]: false });
+  toggle.checked = items[DEBUG_STORAGE_KEY] === true;
+  await ready;
+}
+
 const DEFAULT_SETTINGS = {
   textSize: 'medium',
   targetLines: 2,
   textColor: 'white',
   textOpacity: 100,
-  background: 'medium',
+  captionWidth: 'auto',
+  background: 50,
+  textOutline: false,
+  textBold: false,
   position: 'center-low',
   font: 'atkinson',
   allCaps: false,
@@ -13,6 +23,8 @@ const toggle = document.getElementById('debug-toggle');
 const ketuviaOn = document.getElementById('ketuvia-on');
 const ketuviaOff = document.getElementById('ketuvia-off');
 const capsToggle = document.getElementById('caps-toggle');
+const outlineToggle = document.getElementById('outline-toggle');
+const boldToggle = document.getElementById('bold-toggle');
 const reset = document.getElementById('reset');
 const version = document.getElementById('version');
 if (version) version.textContent = 'v' + chrome.runtime.getManifest().version;
@@ -34,13 +46,23 @@ function normalizeSettings(settings) {
   const textOpacity = [100, 75, 50].includes(Number(settings?.textOpacity))
     ? Number(settings.textOpacity)
     : DEFAULT_SETTINGS.textOpacity;
-  const background = ['light', 'medium', 'dark'].includes(settings?.background)
-    ? settings.background
+  const legacy = { light: 25, medium: 50, dark: 75 };
+  const rawBg = settings?.background ?? DEFAULT_SETTINGS.background;
+  const rawBackground = Object.hasOwn(legacy, String(rawBg))
+    ? legacy[String(rawBg)]
+    : Number(rawBg);
+  const background = [0, 25, 50, 75, 100].includes(rawBackground)
+    ? rawBackground
     : DEFAULT_SETTINGS.background;
+  const captionWidth = ['auto', 'half', 'twothirds', 'threequarters'].includes(settings?.captionWidth)
+    ? settings.captionWidth
+    : DEFAULT_SETTINGS.captionWidth;
   const font = ['atkinson', 'cascadia', 'noto', 'average', 'roboto', 'bona'].includes(settings?.font)
     ? settings.font
     : DEFAULT_SETTINGS.font;
   const allCaps = Boolean(settings?.allCaps);
+  const textOutline = Boolean(settings?.textOutline);
+  const textBold = Boolean(settings?.textBold);
   const position = [
     'left-top', 'center-top', 'right-top',
     'left-high', 'center-high', 'right-high',
@@ -53,7 +75,7 @@ function normalizeSettings(settings) {
     ? settings.position
     : DEFAULT_SETTINGS.position;
 
-  return { textSize, targetLines, background, position, font, allCaps, textColor, textOpacity };
+  return { textSize, targetLines, background, position, font, allCaps, textColor, textOpacity, captionWidth, textOutline, textBold };
 }
 
 async function getGlobalEnabled() {
@@ -75,31 +97,25 @@ async function saveSettings(settings) {
   await chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: settings });
 }
 
-// The settings the popup is currently showing, with the one just changed applied.
-function currentSettings(overrides) {
-  const valueOf = name =>
-    document.querySelector(`[data-setting="${name}"] button[data-active="1"]`)?.dataset.value;
-
-  return normalizeSettings({
-    textSize: valueOf('textSize'),
-    targetLines: valueOf('targetLines'),
-    background: valueOf('background'),
-    textColor: valueOf('textColor'),
-    textOpacity: valueOf('textOpacity'),
-    position: document.querySelector('.position-grid button[data-active="1"]')?.dataset.value,
-    font: document.querySelector('.font-list button[data-active="1"]')?.dataset.value,
-    allCaps: capsToggle.checked,
-    ...overrides,
-  });
-}
+// The settings themselves, not whatever the buttons happen to show. Reading state back out of the DOM meant a click
+// landing before the stored values arrived saved the defaults over them, which looked like colours and sizes reverting.
+let settings = null;
+const ready = loadSettings().then(loaded => {
+  settings = loaded;
+  renderSettings(loaded);
+  return loaded;
+}).catch(() => DEFAULT_SETTINGS);
 
 async function changeSettings(overrides) {
-  const next = currentSettings(overrides);
+  const base = settings || await ready || DEFAULT_SETTINGS;
+  const next = normalizeSettings({ ...base, ...overrides });
+  settings = next;
   renderSettings(next);
   try {
     await saveSettings(next);
   } catch {
-    renderSettings(await loadSettings());
+    settings = await loadSettings();
+    renderSettings(settings);
   }
 }
 
@@ -125,6 +141,8 @@ function renderSettings(settings) {
   });
 
   capsToggle.checked = normalized.allCaps;
+  if (outlineToggle) outlineToggle.checked = normalized.textOutline;
+  if (boldToggle) boldToggle.checked = normalized.textBold;
 }
 
 function renderEnabled(enabled) {
@@ -156,8 +174,11 @@ document.querySelectorAll('.font-list button').forEach(button => {
 });
 
 capsToggle.addEventListener('change', () => changeSettings({ allCaps: capsToggle.checked }));
+if (outlineToggle) outlineToggle.addEventListener('change', () => changeSettings({ textOutline: outlineToggle.checked }));
+if (boldToggle) boldToggle.addEventListener('change', () => changeSettings({ textBold: boldToggle.checked }));
 
 reset.addEventListener('click', async () => {
+  settings = { ...DEFAULT_SETTINGS };
   renderSettings(DEFAULT_SETTINGS);
   toggle.checked = false;
   renderEnabled(true);

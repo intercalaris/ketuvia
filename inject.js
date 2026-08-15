@@ -65,17 +65,20 @@
     targetLines: 2,
     textColor: 'white',
     textOpacity: 100,
+    captionWidth: 'auto',
+    textOutline: false,
+    textBold: false,
     textSize: 'medium',
-    background: 'medium',
+    background: 50,
     position: 'center-low',
     font: 'atkinson',
     allCaps: false,
   };
-  const BACKGROUND_OPACITY = {
-    light: 0.3,
-    medium: 0.5,
-    dark: 0.8,
-  };
+  // Background is a percentage now. 0 is no box at all, 100 is a solid block that hides subtitles burned into the picture. The old strings map onto the scale so nobody's stored choice reverts.
+  const BACKGROUND_LEVELS = [0, 25, 50, 75, 100];
+  const LEGACY_BACKGROUND = { light: 25, medium: 50, dark: 75 };
+  // The user's choice of caption box width. auto keeps the width that follows the font size, which holds a line near 38 characters; the fractions trade rows for longer lines.
+  const CAPTION_WIDTHS = { auto: 0, half: 0.5, twothirds: 2 / 3, threequarters: 0.75 };
   const FONT_FAMILIES = {
     atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
     cascadia: '"Cascadia Code", ui-monospace, monospace',
@@ -133,12 +136,18 @@
   function normalizeSettings(settings) {
     const targetLines = Number(settings?.targetLines);
     const textSize = String(settings?.textSize || DEFAULT_SETTINGS.textSize);
-    const background = String(settings?.background || DEFAULT_SETTINGS.background);
+    const rawBackground = settings?.background ?? DEFAULT_SETTINGS.background;
+    const background = Object.hasOwn(LEGACY_BACKGROUND, String(rawBackground))
+      ? LEGACY_BACKGROUND[String(rawBackground)]
+      : Number(rawBackground);
+    const captionWidth = String(settings?.captionWidth || DEFAULT_SETTINGS.captionWidth);
     const position = String(settings?.position || DEFAULT_SETTINGS.position);
     const font = String(settings?.font || DEFAULT_SETTINGS.font);
     const textColor = String(settings?.textColor || DEFAULT_SETTINGS.textColor);
     const textOpacity = Number(settings?.textOpacity);
     const allCaps = Boolean(settings?.allCaps);
+    const textOutline = Boolean(settings?.textOutline);
+    const textBold = Boolean(settings?.textBold);
 
     return {
       targetLines: [1, 2, 3, 4, 5].includes(targetLines)
@@ -153,9 +162,12 @@
       textSize: Object.hasOwn(CFG.fontSizePx, textSize)
         ? textSize
         : DEFAULT_SETTINGS.textSize,
-      background: Object.hasOwn(BACKGROUND_OPACITY, background)
+      background: BACKGROUND_LEVELS.includes(background)
         ? background
         : DEFAULT_SETTINGS.background,
+      captionWidth: Object.hasOwn(CAPTION_WIDTHS, captionWidth)
+        ? captionWidth
+        : DEFAULT_SETTINGS.captionWidth,
       position: Object.hasOwn(OVERLAY_POSITIONS, position)
         ? position
         : DEFAULT_SETTINGS.position,
@@ -163,6 +175,8 @@
         ? font
         : DEFAULT_SETTINGS.font,
       allCaps,
+      textOutline,
+      textBold,
     };
   }
 
@@ -576,14 +590,20 @@
       previousSettings.targetLines !== STATE.settings.targetLines ||
       previousSettings.textSize !== STATE.settings.textSize ||
       previousSettings.font !== STATE.settings.font ||
-      previousSettings.allCaps !== STATE.settings.allCaps;
+      previousSettings.allCaps !== STATE.settings.allCaps ||
+      // Bold letters are wider, so captions must be re-measured and re-chunked for them.
+      previousSettings.textBold !== STATE.settings.textBold ||
+      // Width feeds the wrap simulation, so captions must be rebuilt for it or every measurement is for the old box.
+      previousSettings.captionWidth !== STATE.settings.captionWidth;
 
     if (!STATE.enabled || !areNativeCaptionsEnabled()) {
       clearKetuviaOverlay();
       return { ...STATE.settings };
     }
 
-    if (needsRebuild && previousSettings.font !== STATE.settings.font) {
+    // A different family and a different weight are both a different font file, so both must wait for the load or the rebuild measures a font that is not on screen yet.
+    if (needsRebuild && (previousSettings.font !== STATE.settings.font ||
+                         previousSettings.textBold !== STATE.settings.textBold)) {
       rebuildChunksAfterFontReady();
     } else if (needsRebuild) {
       rebuildChunksForLayout('settings_changed', true);
@@ -722,7 +742,12 @@
         ? CFG.fontSizePx.medium[bucket]
         : fontSizePx;
     const maxAvailableWidth = Math.max(0, playerWidth - CFG.playerPaddingPx);
-    const textWidthPx = Math.min(Math.round(widthFontPx * widthEm), maxAvailableWidth);
+    // The chosen fraction of the player wins over the em rule, except on Shorts, whose narrow box exists to clear the action buttons.
+    const widthFraction = CAPTION_WIDTHS[settings.captionWidth] || 0;
+    // Auto never exceeds the largest manual option, so picking 3/4 can never make the box narrower. The cap only touches xxlarge on small players, costing about one character per line there.
+    const textWidthPx = !isShorts && widthFraction > 0
+      ? Math.min(Math.round(playerWidth * widthFraction), maxAvailableWidth)
+      : Math.min(Math.round(widthFontPx * widthEm), isShorts ? maxAvailableWidth : Math.round(playerWidth * 0.75), maxAvailableWidth);
 
     return {
       textWidthPx,
@@ -849,7 +874,7 @@
     node.style.setProperty('--rechunk-target-lines', String(layout.targetLines));
     node.style.setProperty(
       '--rechunk-bg-opacity',
-      String(BACKGROUND_OPACITY[STATE.settings.background] || BACKGROUND_OPACITY.medium)
+      String((Number(STATE.settings.background) || 0) / 100)
     );
     node.style.setProperty(
       '--rechunk-font-family',
@@ -862,6 +887,14 @@
     node.style.setProperty(
       '--rechunk-text-opacity',
       String((Number(STATE.settings.textOpacity) || 100) / 100)
+    );
+    // A hard outline keeps text readable with the background off, the way burned-in broadcast subtitles stay legible. Pure style, so no rebuild is needed.
+    node.style.setProperty('--rechunk-font-weight', STATE.settings.textBold ? '700' : '400');
+    node.style.setProperty(
+      '--rechunk-text-shadow',
+      STATE.settings.textOutline
+        ? '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000'
+        : '0 1px 2px rgba(0, 0, 0, 0.9)'
     );
     node.style.setProperty(
       '--rechunk-font-feature-settings',
@@ -1077,7 +1110,7 @@
     container.style.fontFamily = FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson;
     container.style.fontSize = layout.fontSizePx + 'px';
     container.style.lineHeight = String(layout.lineHeight);
-    container.style.fontWeight = '400';
+    container.style.fontWeight = STATE.settings.textBold ? '700' : '400';
     container.style.letterSpacing = '0.01em';
     container.style.fontFeatureSettings = STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal';
 
@@ -1109,7 +1142,8 @@
     if (!family) return;
 
     const size = Math.max(1, Math.round(layout.fontSizePx || 32));
-    const fontSpec = `400 ${size}px ${family}`;
+    // Each weight is a separate @font-face, so it is a separate download. Waiting for 400 while rendering 700 measures against a font that is not on screen yet.
+    const fontSpec = `${STATE.settings.textBold ? 700 : 400} ${size}px ${family}`;
     pushTimingRecord('font_load_start', { fontSpec });
     const t0 = performance.now();
     await document.fonts.load(fontSpec);
@@ -1153,6 +1187,8 @@
       STATE.settings.textSize,
       STATE.settings.font,
       STATE.settings.allCaps ? 'caps' : 'normal',
+      // Bold glyphs are wider, so the same words wrap differently. Without this the rebuild is skipped as "unchanged" and captions keep the word grouping measured at regular weight.
+      STATE.settings.textBold ? 'bold' : 'normal',
       DEBUG.enabled ? 'debug' : 'normal',
     ].join('|');
   }
@@ -1565,7 +1601,8 @@
     mountOverlay();
     setStatus('active');
     startPolling();
-    rebuildChunksForLayout('timedtext_parsed');
+    // The first build measures the caption font, so it has to wait for that font the same way a font change does.
+    rebuildChunksAfterFontReady();
   }
 
   function currentVideoId() {
@@ -1998,6 +2035,33 @@ function lineBreaksLookMechanical(textEvents, cfg) {
             if (debug) debug.skippedNonIncreasingStartCount += 1;
             continue;
           }
+          // A segment holding a whole line cannot be wrapped, so a line too long for the box overflows it. Split it into words the chunker can re-wrap, and keep the segment boundary so captions still land on the segment's own timing.
+          const segWords = text.trim().split(/\s+/).filter(Boolean);
+          if (segWords.length > 1) {
+            const nextSeg = ev.segs[segIndex + 1];
+            const nextEvent = eventInfo.events[eventIndex + 1];
+            // Rolling captions overlap, so a word spread past the next event's start would be dropped as out of order.
+            const segEndMs = nextSeg
+              ? base + (nextSeg.tOffsetMs || 0)
+              : Math.min(eventEndMs || Infinity, nextEvent?.tStartMs ?? (eventEndMs || start));
+            const segSpanMs = Math.max(0, segEndMs - start);
+            for (let wi = 0; wi < segWords.length; wi++) {
+              // Never skip a word for timing: nudging it a millisecond later keeps the order without losing text.
+              const wordStart = Math.max(lastStart + 1,
+                start + Math.round((wi / segWords.length) * segSpanMs));
+              out.push({
+                start: wordStart,
+                end: null,
+                text: segWords[wi],
+                eventIndex,
+                sourceKind: eventInfo.sourceKind,
+                preserveEventBoundary: true,
+              });
+              lastStart = wordStart;
+            }
+            if (debug) debug.multiWordSegCount += 1;
+            continue;
+          }
           out.push({
             start,
             end: null,
@@ -2038,6 +2102,8 @@ function lineBreaksLookMechanical(textEvents, cfg) {
 async function chunkWords(words, cfg, requestId) {
   const chunks = [];
   const debugChunks = [];
+  // Why each caption ended and how many lines it was predicted to need. Debug mode measures differently, so it cannot answer this for the fast path.
+  const chunkTrace = [];
   const shouldDebug = DEBUG.enabled;
   const pendingVerification = [];
   if (!words.length) return { chunks, debugChunks };
@@ -2049,6 +2115,10 @@ async function chunkWords(words, cfg, requestId) {
   let cwWidths = null; // Float32Array indexed by word index
   let cwSpaceW = 0;
 
+  // The measurer must carry the weight the captions will render at BEFORE anything is measured. Overlay styling is deferred to the end of the rebuild to avoid flashes, but the measurer is invisible, so it gets the weight now.
+  if (STATE.measurer) {
+    STATE.measurer.style.setProperty('--rechunk-font-weight', STATE.settings.textBold ? '700' : '400');
+  }
   pushTimingRecord('canvas_precompute_start', { wordCount: words.length });
   const preT0 = performance.now();
   if (canvasW > 0 && STATE.measurerText) {
@@ -2060,6 +2130,14 @@ async function chunkWords(words, cfg, requestId) {
       const ctx = cvs.getContext('2d');
       // Build the font string from individual properties instead of the `font` shorthand. The shorthand returns an empty string when any font-variant-* sub-property is non-default (e.g. font-variant-ligatures:none on Cascadia), which silently resets the canvas to its default 10px sans-serif font.
       ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      // What the chunker actually measured with. Silent disagreement with the rendered font or box is what makes captions overflow.
+      const primaryFamily = style.fontFamily.split(',')[0].trim();
+      window.__ketuviaCanvas = {
+        font: ctx.font,
+        faceLoaded: document.fonts?.check?.(`${style.fontWeight} ${style.fontSize} ${primaryFamily}`) ?? null,
+        boxPx: canvasW,
+        renderedPx: Math.round(STATE.measurerText.getBoundingClientRect().width),
+      };
       const lsPx = parseFloat(style.letterSpacing) || 0;
       cwSpaceW = ctx.measureText(' ').width + lsPx;
       // Store per-token widths per segment. Each segment may contain multiple space-separated tokens; we must wrap at each token boundary, not at segment boundaries, to match DOM word-wrap behaviour.
@@ -2150,6 +2228,7 @@ async function chunkWords(words, cfg, requestId) {
       fromCreatorLine: meta.reason === 'manual_caption_event_boundary',
       text: displayText,
     });
+    chunkTrace.push({ reason: meta.reason, lines: meta.layout?.lineCount ?? null, text: displayText });
     if (shouldDebug) {
       debugChunks.push({
         idx: chunks.length - 1,
@@ -2361,6 +2440,7 @@ async function chunkWords(words, cfg, requestId) {
     }
   }
 
+  window.__ketuviaChunkTrace = chunkTrace;
   return { chunks, debugChunks };
 }
 
