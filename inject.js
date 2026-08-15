@@ -20,20 +20,20 @@
     navRetryForMs: 8000,
     triggerRetryMs: 900,
     maxTriggerAttempts: 8,
-    // Caption sizing is a flat lookup: pick a player-width bucket, then read the
-    // font size for the chosen font setting. Box width is just font x widthEm,
-    // capped so it fits the player. No ratios, scales, or floors.
-    widthBuckets: { medium: 700, large: 1250 },   // player-width thresholds (px)
+    // Caption sizing is a flat lookup: pick a player-width bucket, then read the font size for the chosen font. Box width is font x widthEm, capped to the player.
+    widthBuckets: { medium: 700, large: 1250, xwide: 1800, ultra: 2600 },   // player-width thresholds (px)
+    // Broadcast captions (CEA-708, BBC) are 1/15 of picture height. The two TV sizes aim at that on a fullscreen player, which is why they keep growing with the box.
     fontSizePx: {
-      //          screen:  small  medium  large
-      small:  { small: 16, medium: 18, large: 20 },
-      medium: { small: 20, medium: 24, large: 28 },
-      large:  { small: 24, medium: 30, large: 34 },
+      //          screen:  small  medium  large  xwide  ultra
+      small:   { small: 16, medium: 18, large: 20, xwide: 22, ultra: 26 },
+      medium:  { small: 20, medium: 24, large: 28, xwide: 32, ultra: 40 },
+      large:   { small: 24, medium: 30, large: 34, xwide: 40, ultra: 50 },
+      xlarge:  { small: 28, medium: 36, large: 44, xwide: 56, ultra: 76 },
+      xxlarge: { small: 32, medium: 42, large: 56, xwide: 72, ultra: 120 },
     },
+    wrapSafety: 0.985,
     textWidthEm:     24,
-    // Shorts only: narrow the box so a full line clears the right-side action
-    // buttons (like/subscribe/share). The box is centered, so this trims both
-    // edges — ~3em pulls each side in by roughly 3 characters.
+    // Shorts only: narrow the box so a line clears the right-side action buttons. The box is centered, so 3em trims about 3 characters off each side.
     shortsWidthReductionEm: 3,
     // Normal video, medium & large only: trim a few characters off the box.
     normalWideReductionEm: 5,
@@ -42,19 +42,29 @@
     playerPaddingPx: 32,
     lineHeight:    1.4,
     rebuildYieldMs: 50,
-    // Thresholds for linesWereFittedToAWidth. Each one rules out a population
-    // whose line breaks are the creator's own and must be kept.
+    // Thresholds for deciding whether a creator's line breaks may be re-chunked.
     fittedLines: {
-      minCaptionsWithBreak: 0.5,  // one line per caption is the lyric shape
-      minLines:              12,  // too little to judge, so assume authored
-      maxLengthSpread:      6.5,  // characters; verse lines follow the phrase
-      maxRepeatedLines:     0.2,  // a chorus repeats, a transcript does not
+      minSpeechCharsPerSecond: 12,  // measured: song and verse 1.9 to 11.2, speech 14.1 to 16.9
+      minCaptionsWithBreak:   0.2,  // some internal layout to judge at all
+      minBreaks:               40,  // too few to judge, so assume the creator's
+      minFittedScore:        0.15,  // measured: fitted 0.26+, lyrics 0.04 and under
     },
   };
 
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
+  // The two TV sizes obey the same line length as the rest. Measuring the box in em keeps a line near 38 characters however large the screen gets, which is where broadcast subtitles sit.
+  const BIG_SIZES = new Set(['xlarge', 'xxlarge']);
+  const TEXT_COLORS = {
+    white: '#ffffff',
+    yellow: '#ffff00',
+    green: '#00ff00',
+    cyan: '#00ffff',
+  };
+  const TEXT_OPACITIES = [100, 75, 50];
   const DEFAULT_SETTINGS = {
     targetLines: 2,
+    textColor: 'white',
+    textOpacity: 100,
     textSize: 'medium',
     background: 'medium',
     position: 'center-low',
@@ -107,9 +117,7 @@
   };
 
   function readSettings() {
-    // storage-bridge.js puts the saved settings on the document as soon as it can
-    // read them. They are the authority; localStorage is only a same-page cache
-    // for the case where the bridge has not reported yet.
+    // storage-bridge.js puts saved settings on the document and they are the authority. localStorage is only a same-page cache for before the bridge reports.
     const fromBridge = document.documentElement.dataset.ketuviaSettings;
     if (fromBridge) {
       try { return normalizeSettings(JSON.parse(fromBridge)); } catch {}
@@ -128,12 +136,20 @@
     const background = String(settings?.background || DEFAULT_SETTINGS.background);
     const position = String(settings?.position || DEFAULT_SETTINGS.position);
     const font = String(settings?.font || DEFAULT_SETTINGS.font);
+    const textColor = String(settings?.textColor || DEFAULT_SETTINGS.textColor);
+    const textOpacity = Number(settings?.textOpacity);
     const allCaps = Boolean(settings?.allCaps);
 
     return {
-      targetLines: [1, 2, 3].includes(targetLines)
+      targetLines: [1, 2, 3, 4, 5].includes(targetLines)
         ? targetLines
         : DEFAULT_SETTINGS.targetLines,
+      textColor: Object.hasOwn(TEXT_COLORS, textColor)
+        ? textColor
+        : DEFAULT_SETTINGS.textColor,
+      textOpacity: TEXT_OPACITIES.includes(textOpacity)
+        ? textOpacity
+        : DEFAULT_SETTINGS.textOpacity,
       textSize: Object.hasOwn(CFG.fontSizePx, textSize)
         ? textSize
         : DEFAULT_SETTINGS.textSize,
@@ -264,15 +280,7 @@
   window.ketuviaDownload = downloadKetuviaDebugBundle;
   window.ketuvia = downloadKetuviaDebugBundle;
 
-  // ===========================================================================
-  // Firefox-only caption-loading diagnostic. Runs ONLY on Firefox and ONLY
-  // while Debug mode is on. Records a single timeline that survives page
-  // refreshes (kept in sessionStorage), so refreshing, clicking, playing,
-  // waiting, and scrolling to the next video all land in one log. It samples
-  // state continuously and hooks user interactions, then auto-saves a JSON
-  // report when Debug is turned off or after a 60s budget. The goal is to see
-  // exactly what happened, when, and why captions did or did not load.
-  // ===========================================================================
+  // Firefox-only caption-loading diagnostic, active only while Debug mode is on. One timeline kept in sessionStorage so it survives refreshes, saved as JSON when Debug goes off.
   const FFDIAG = {
     isFirefox: /firefox/i.test(navigator.userAgent),
     logKey: 'ketuviaFFDiagLog',
@@ -593,17 +601,9 @@
   window.addEventListener('storage', event => {
     if (event.key !== SETTINGS_STORAGE_KEY || !event.newValue) return;
     try {
-      const parsed = JSON.parse(event.newValue);
-      const next = normalizeSettings(parsed);
-      const current = STATE.settings;
-      if (
-        next.targetLines === current.targetLines &&
-        next.textSize === current.textSize &&
-        next.background === current.background &&
-        next.position === current.position &&
-        next.font === current.font &&
-        next.allCaps === current.allCaps
-      ) return;
+      const next = normalizeSettings(JSON.parse(event.newValue));
+      // Compare the whole object. A hand-written field list silently drops any setting added later.
+      if (JSON.stringify(next) === JSON.stringify(STATE.settings)) return;
       applySettings(next);
     } catch {}
   });
@@ -679,7 +679,9 @@
   }
 
   function widthBucket(playerWidth) {
-    return playerWidth >= CFG.widthBuckets.large ? 'large'
+    return playerWidth >= CFG.widthBuckets.ultra ? 'ultra'
+      : playerWidth >= CFG.widthBuckets.xwide ? 'xwide'
+      : playerWidth >= CFG.widthBuckets.large ? 'large'
       : playerWidth >= CFG.widthBuckets.medium ? 'medium'
       : 'small';
   }
@@ -693,21 +695,16 @@
     // Bucket the player width, then look up the font size for this setting.
     const bucket = widthBucket(playerWidth);
     const sizeRow = CFG.fontSizePx[settings.textSize] || CFG.fontSizePx.medium;
+    // The chosen size is the chosen size. Keeping a tall caption on screen is the positioning code's job, not a reason to quietly hand back a smaller font than was asked for.
     const fontSizePx = sizeRow[bucket];
 
-    // Box width follows the font size, capped so it always fits the player.
-    // Two width-basis overrides (the displayed font size is unchanged):
-    //  - Shorts: every size uses the SMALL font so the box always clears the
-    //    fixed right-side action buttons (bigger fonts just wrap to more lines).
-    //  - Normal video, large font: uses the MEDIUM font's width so large keeps
-    //    its size but isn't any wider than medium.
-    // Width is also trimmed a few characters: Shorts (all sizes) and normal
-    // video medium/large.
+    // Box width follows the font size, capped to the player. Two width-basis overrides that do not change the displayed size: Shorts always uses the small font's width so the box clears the action buttons, and large on a normal video uses medium's width.
     const isShorts = location.pathname.startsWith('/shorts/');
     let widthEm = CFG.textWidthEm;
     if (isShorts) widthEm -= CFG.shortsWidthReductionEm;
     else if (settings.textSize === 'large') widthEm -= CFG.normalWideReductionEm - 1; // 1 char wider than medium
     else if (settings.textSize === 'medium') widthEm -= CFG.normalWideReductionEm;
+    else if (BIG_SIZES.has(settings.textSize)) widthEm -= CFG.normalWideReductionEm;
     const widthFontPx = isShorts
       ? CFG.fontSizePx.small[bucket]
       : settings.textSize === 'large'
@@ -848,12 +845,18 @@
       FONT_FAMILIES[STATE.settings.font] || FONT_FAMILIES.atkinson
     );
     node.style.setProperty(
+      '--rechunk-color',
+      TEXT_COLORS[STATE.settings.textColor] || TEXT_COLORS.white
+    );
+    node.style.setProperty(
+      '--rechunk-text-opacity',
+      String((Number(STATE.settings.textOpacity) || 100) / 100)
+    );
+    node.style.setProperty(
       '--rechunk-font-feature-settings',
       STATE.settings.font === 'cascadia' ? '"liga" 0, "calt" 0' : 'normal'
     );
-    // Shorts videos are tall, so the same percent translates to a larger
-    // pixel offset from center. Compress y toward center on Shorts so each
-    // labelled position lands where it visually belongs.
+    // Shorts are tall, so the same percent is a larger pixel offset from centre. Compress y toward centre so each labelled position lands where it visually belongs.
     const SHORTS_Y_REMAP = { 8: 18, 18: 30, 30: 40, 50: 50, 70: 60, 82: 70, 92: 82 };
     const rawY = Number.parseFloat(position.y);
     const y = location.pathname.startsWith('/shorts/') && SHORTS_Y_REMAP[rawY] != null
@@ -888,9 +891,7 @@
       return;
     }
 
-    // Anchor relative to video element's actual rect, not player's CSS height
-    // (which lags during resize). Bottom-half positions anchor to video bottom
-    // so the gap stays proportional to video height, not absolute pixels.
+    // Anchor to the video element's real rect, not the player's CSS height which lags during resize. Bottom-half positions anchor to the video bottom so the gap stays proportional.
     const video = document.querySelector('video');
     const playerEl = getPlayerElement();
     const vr = video?.getBoundingClientRect();
@@ -900,35 +901,23 @@
       const isShorts = location.pathname.startsWith('/shorts/');
       if (isShorts) {
         const fontLinePx = (layout.fontSizePx || 0) * (layout.lineHeight || 1.4);
-        // Top/bottom edges are positioned from the SMALL font as a fixed
-        // reference so they don't move with the selected font size — larger
-        // fonts just grow toward the middle instead of past the edge.
+        // Top and bottom edges are positioned from the small font as a fixed reference, so larger fonts grow toward the middle instead of past the edge.
         const refLinePx = CFG.fontSizePx.small[widthBucket(playerEl.clientWidth || pr.width)] * (layout.lineHeight || 1.4);
         const oneLineBoxPx = refLinePx + 4; // + 2px top/bottom padding
         if (rawY >= 92) {
-          // Lowest position: bottom-anchor like normal-video bottom captions so
-          // 2- and 3-line captions grow UPWARD and never drop below where a
-          // 1-line caption sits — keeps them clear of the subscribe/action
-          // buttons.
+          // Lowest position bottom-anchors like a normal video, so taller captions grow upward and never drop below where a one-line caption sits.
           const centerPx = videoOffsetInPlayer + (y / 100) * vr.height + 0.75 * refLinePx;
           node.style.top = 'auto';
           node.style.bottom = Math.round(pr.height - (centerPx + oneLineBoxPx / 2)) + 'px';
           node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
         } else if (rawY <= 8) {
-          // Topmost position: top-anchor so 2- and 3-line captions grow DOWNWARD
-          // and never rise above the video's top edge. Lifted by the shared
-          // top-raise amount (see below).
+          // Topmost position top-anchors so taller captions grow downward and never rise above the video's top edge, lifted by the shared top-raise amount.
           const centerPx = videoOffsetInPlayer + (y / 100) * vr.height - 0.75 * refLinePx - CFG.shortsTopRaiseLines * refLinePx;
           node.style.bottom = 'auto';
           node.style.top = Math.round(centerPx - oneLineBoxPx / 2) + 'px';
           node.style.transform = position.x === 'center' ? 'translateX(-50%)' : 'none';
         } else {
-          // Center-anchored positions. Base layout mirrors about the video's
-          // middle (remapped y% 18/82, 30/70, 40/60 already pair up; the small
-          // quarter-line nudge on rawY 18 mirrors rawY 82). The two upper
-          // positions (rawY 18, 30) are then lifted by the shared top-raise
-          // amount — in refLine units so all top 3 move equally and keep order.
-          // Bottom and middle positions are unchanged.
+          // Centre-anchored positions mirror about the video's middle, then the two upper ones are lifted by the shared top-raise amount in refLine units so all three move equally and keep their order.
           const shiftLines = rawY === 18 ? 0.25 : rawY === 82 ? -0.25 : 0;
           const raisePx = rawY <= 30 ? CFG.shortsTopRaiseLines * refLinePx : 0;
           const centerPx = Math.round(videoOffsetInPlayer + (y / 100) * vr.height + shiftLines * fontLinePx - raisePx);
@@ -955,7 +944,10 @@
   }
 
   function mountOverlay({ skipOverlayLayout = false } = {}) {
-    if (!document.head.contains(_captionHideStyle)) document.head.appendChild(_captionHideStyle);
+    // Only hide YouTube's captions while we are actually replacing them.
+    if (STATE.enabled && !document.head.contains(_captionHideStyle)) {
+      document.head.appendChild(_captionHideStyle);
+    }
 
     const player = getPlayerElement();
     if (!player) {
@@ -999,14 +991,7 @@
 
     if (!STATE.resizeObserver && typeof ResizeObserver === 'function') {
       STATE.resizeObserver = new ResizeObserver(entries => {
-        // The player resizes continuously during a fast window drag AND for
-        // several seconds while a freshly-opened video settles its layout.
-        // Read the size from contentRect (no forced reflow) to drop no-op
-        // notifications, then trailing-debounce the reflow-heavy layout work
-        // (getLayoutMetrics + applyLayout x2) so it runs ONCE after the size
-        // settles instead of every frame. Doing it per-notification saturates
-        // the main thread; this is also loop-safe (a re-triggered resize just
-        // resets the timer rather than doing work).
+        // The player resizes continuously during a window drag and while a fresh video settles. Read the size from contentRect to drop no-op notifications, then debounce the reflow-heavy layout so it runs once after the size settles.
         const cr = entries[entries.length - 1]?.contentRect;
         const w = cr ? Math.round(cr.width) : 0;
         const h = cr ? Math.round(cr.height) : 0;
@@ -1115,12 +1100,7 @@
   function rebuildChunksAfterFontReady() {
     const player = mountOverlay({ skipOverlayLayout: true });
     if (!player || !STATE.words.length) {
-      // The overlay layout is normally applied at the end of the rebuild, to
-      // avoid a flash of the wrong line count while the font loads. With no
-      // transcript there is no rebuild and nothing to flash, so apply it now:
-      // otherwise the new appearance sits in STATE until some unrelated event
-      // (a resize, the next video) happens to flush it, which looks to the user
-      // like the setting did nothing.
+      // Layout is normally applied at the end of a rebuild to avoid a flash of the wrong line count. With no transcript there is no rebuild, so apply it now or the setting sits in STATE looking like it did nothing.
       applyOverlayLayoutNow();
       return;
     }
@@ -1408,9 +1388,7 @@
     });
     log('intercepted timedtext vid=' + vid + ' len=' + text.length);
     if (STATE.videoId && vid !== STATE.videoId) {
-      // Timedtext request is itself the authoritative signal that captions
-      // for a new video are loading — the URL update / navigate-finish often
-      // races behind it (especially on Shorts scroll). Reset and adopt.
+      // Timedtext request is itself the authoritative signal that captions for a new video are loading — the URL update / navigate-finish often races behind it (especially on Shorts scroll). Reset and adopt.
       resetForNewVideo();
       STATE.videoId = vid;
     }
@@ -1518,10 +1496,7 @@
       return _XHRSend.apply(this, args);
     };
 
-  // Mark when our fetch/XHR interceptor finished installing (only during a
-  // Firefox diagnostic session). Comparing this against the timedtext request's
-  // start time in performance entries reveals whether YouTube's request fired
-  // before we could patch — the core of the refresh race.
+  // Mark when our fetch/XHR interceptor finished installing (only during a Firefox diagnostic session). Comparing this against the timedtext request's start time in performance entries reveals whether YouTube's request fired before we could patch — the core of the refresh race.
   try {
     if (FFDIAG.isFirefox && ffSessionActive()) {
       window.__ketuviaInterceptorMs = Math.round(performance.now());
@@ -1807,9 +1782,7 @@
     checkNavigation();
   }
 
-  // Resume the Firefox diagnostic on this fresh page load if a session is still
-  // active (it persists in sessionStorage across refreshes). Runs from the very
-  // start of the page so the initial-request race window is captured.
+  // Resume the Firefox diagnostic on this fresh page load if a session is still active (it persists in sessionStorage across refreshes). Runs from the very start of the page so the initial-request race window is captured.
   ffStart();
   document.addEventListener('yt-navigate-start',  () => { if (STATE.videoId && currentVideoId() !== STATE.videoId) resetForNewVideo(); }, true);
   document.addEventListener('yt-navigate-finish', () => {
@@ -1817,48 +1790,64 @@
     setTimeout(checkNavigation, 0);
   }, true);
 
-  // Whether a manual track's line breaks came from a tool fitting the text to a
-  // fixed width, rather than from the creator. Obeying a fitter's breaks lays our
-  // captions out for someone else's box: each one holds half a wrapped block, so
-  // it cannot fill the chosen number of lines and strands a word or two on the
-  // last one.
-  //
-  // Three questions, each ruling out a kind of writing whose breaks are real:
-  //   1. Do most captions even contain a break? Lyrics almost always give one
-  //      line per caption, so there is no internal layout to attribute to a tool.
-  //   2. Are the lines all about the same length? That is what fitting to a width
-  //      means. Verse lines are as long as the phrase, so they vary.
-  //   3. Does the text repeat itself? Sung verse can have short even lines, but
-  //      it has a chorus. A transcript does not say the same line twice.
-  function linesWereFittedToAWidth(textEvents, cfg) {
+  // Words that cannot end an English phrase. A line ending on one was broken by
+  // something that could not read it.
+  const PHRASE_GLUE = new Set((
+    'a an the this that these those my your his her its our their ' +
+    'of to in on at by for with from into onto upon over under about across through during ' +
+    'and or but nor so yet as if than then because while when where whether which who whom whose ' +
+    'is are was were am be been being do does did have has had ' +
+    'will would shall should can could may might must ' +
+    'no not any some each every either neither both all ' +
+    'i you he she it we they there here what how why'
+  ).split(' '));
+
+  // Whether a manual track's line breaks came from a tool fitting text to a width rather than from the creator. Obeying a fitter's breaks lays captions out for someone else's box: each holds part of a wrapped block, so it cannot fill the chosen number of lines and strands a word or two on the last row. A fitter breaks wherever the width runs out, so it ends lines on "of" or "the" as readily as anywhere. A person ends a line at punctuation or a phrase boundary and never on a word that belongs to the next one. Scoring the breaks that way separates the two by a wide margin, where every measure of line length or timing overlapped: fitted tracks score 0.26 and above, lyrics and verse 0.04 and below. Only breaks INSIDE a caption count. Where each caption is one line, which is the usual shape for lyrics, there is no internal layout to attribute at all.
+  // How fast the caption stream delivers text. Speech runs 14 to 17 characters a second; singing and recitation run 2 to 11, because the words are held to the music.
+function deliveryCharsPerSecond(textEvents) {
+  let chars = 0, ms = 0;
+  for (const item of textEvents) {
+    const dur = Number(item.ev.dDurationMs);
+    if (!Number.isFinite(dur) || dur <= 0) continue;
+    ms += dur;
+    chars += item.text.trim().length;
+  }
+  return ms > 0 ? chars / (ms / 1000) : null;
+}
+
+// A creator's line break is worth keeping only when its timing carries meaning, which is what separates a lyric from a sentence a tool happened to cut in half.
+function mayRechunkAcrossLines(textEvents, cfg) {
+  if (!textEvents.length) return false;
+  const rate = deliveryCharsPerSecond(textEvents);
+  if (rate != null) return rate > cfg.minSpeechCharsPerSecond;
+  return lineBreaksLookMechanical(textEvents, cfg);
+}
+
+// Fallback for files that carry no durations: judge the grammar of the breaks themselves.
+function lineBreaksLookMechanical(textEvents, cfg) {
     if (!textEvents.length) return false;
 
     let withBreak = 0;
-    const lines = [];
+    let breaks = 0;
+    let glueEndings = 0;
+    let punctuationEndings = 0;
+
     for (const item of textEvents) {
-      if (item.text.includes('\n')) withBreak += 1;
-      for (const line of item.text.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed) lines.push(trimmed);
+      const lines = item.text.split('\n').map(line => line.trim()).filter(Boolean);
+      if (lines.length > 1) withBreak += 1;
+
+      for (let i = 0; i < lines.length - 1; i++) {
+        const words = lines[i].split(/\s+/);
+        const last = words[words.length - 1] || '';
+        breaks += 1;
+        if (/[.,!?;:…]$/.test(last)) punctuationEndings += 1;
+        else if (PHRASE_GLUE.has(last.toLowerCase().replace(/[^a-z']/g, ''))) glueEndings += 1;
       }
     }
+
     if (withBreak / textEvents.length <= cfg.minCaptionsWithBreak) return false;
-    if (lines.length < cfg.minLines) return false;
-
-    const mean = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
-    const spread = Math.sqrt(
-      lines.reduce((sum, line) => sum + (line.length - mean) * (line.length - mean), 0) / lines.length
-    );
-    if (spread >= cfg.maxLengthSpread) return false;
-
-    const seen = new Map();
-    for (const line of lines) {
-      const key = line.toLowerCase().replace(/[^a-z ]/g, '');
-      seen.set(key, (seen.get(key) || 0) + 1);
-    }
-    let repeated = 0;
-    for (const count of seen.values()) if (count > 1) repeated += count;
-    return repeated / lines.length < cfg.maxRepeatedLines;
+    if (breaks < cfg.minBreaks) return false;
+    return (glueEndings - punctuationEndings) / breaks > cfg.minFittedScore;
   }
 
   function getTextEventInfo(json3) {
@@ -1887,7 +1876,7 @@
 
     // Word-timed tracks carry no creator line breaks, so there is nothing to keep.
     const linesAreAuthored =
-      !manualCaptionLike || !linesWereFittedToAWidth(textEvents, CFG.fittedLines);
+      !manualCaptionLike || !mayRechunkAcrossLines(textEvents, CFG.fittedLines);
 
     return {
       events,
@@ -1935,12 +1924,7 @@
         const start = base + (s.tOffsetMs || 0);
 
         if (eventInfo.sourceKind === 'manual_event_captions') {
-          // Manual captions: one segment holds the full sentence, possibly with \n
-          // where the creator intended a line break. Split into sub-lines at \n,
-          // then into individual words within each sub-line, distributing timing
-          // proportionally. This lets the chunk builder reflow within a sub-line
-          // when the user's font or caps setting would otherwise cause overflow,
-          // while still respecting the creator's \n boundaries as hard chunk breaks.
+          // One event is one caption on YouTube, so the event boundary is the real one. A newline inside an event is the captioner fitting YouTube's width, not a lyric boundary, so those words keep the event's index and the box re-wraps them. Splitting there delays half the line past when YouTube shows it.
           const subLines = text.split('\n').map(l => l.trim()).filter(Boolean);
           if (!subLines.length) {
             if (debug) debug.skippedNonTextCount += 1;
@@ -1988,8 +1972,8 @@
               lastStart = wordStart;
             }
             subLineStart = subLineEnd;
-            subLineCounter++;
           }
+          subLineCounter++;
         } else {
           if (start <= lastStart) {
             if (debug) debug.skippedNonIncreasingStartCount += 1;
@@ -2055,16 +2039,11 @@ async function chunkWords(words, cfg, requestId) {
       // and correctly loads custom @font-face fonts (OffscreenCanvas does not).
       const cvs = document.createElement('canvas');
       const ctx = cvs.getContext('2d');
-      // Build the font string from individual properties instead of the `font`
-      // shorthand. The shorthand returns an empty string when any font-variant-*
-      // sub-property is non-default (e.g. font-variant-ligatures:none on Cascadia),
-      // which silently resets the canvas to its default 10px sans-serif font.
+      // Build the font string from individual properties instead of the `font` shorthand. The shorthand returns an empty string when any font-variant-* sub-property is non-default (e.g. font-variant-ligatures:none on Cascadia), which silently resets the canvas to its default 10px sans-serif font.
       ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       const lsPx = parseFloat(style.letterSpacing) || 0;
       cwSpaceW = ctx.measureText(' ').width + lsPx;
-      // Store per-token widths per segment. Each segment may contain multiple
-      // space-separated tokens; we must wrap at each token boundary, not at
-      // segment boundaries, to match DOM word-wrap behaviour.
+      // Store per-token widths per segment. Each segment may contain multiple space-separated tokens; we must wrap at each token boundary, not at segment boundaries, to match DOM word-wrap behaviour.
       cwWidths = new Array(words.length);
       for (let i = 0; i < words.length; i++) {
         const norm = normalizeCaptionText(words[i].text);
@@ -2085,17 +2064,19 @@ async function chunkWords(words, cfg, requestId) {
   });
 
   // Simulate CSS word-wrapping using precomputed token widths. Returns null if canvas unavailable.
+  // Canvas metrics and real layout differ by a fraction of a pixel per glyph, which decides the wrap when a line lands at 99% full, so pack to a slightly narrower box and the real layout always fits what was planned.
+  const wrapW = canvasW * cfg.wrapSafety;
   function fastLineInfo(from, to) {
     if (!cwWidths) return null;
     let x = 0, lines = 1, any = false;
     for (let i = from; i < to; i++) {
       for (const w of cwWidths[i]) {
         if (!w) continue;
-        if (any && x + cwSpaceW + w > canvasW) { lines++; x = w; }
+        if (any && x + cwSpaceW + w > wrapW) { lines++; x = w; }
         else { x += any ? cwSpaceW + w : w; any = true; }
       }
     }
-    return { lineCount: lines, lastLineFill: any ? Math.min(1, x / canvasW) : 0 };
+    return { lineCount: lines, lastLineFill: any ? Math.min(1, x / wrapW) : 0 };
   }
 
   function fastHasMinFill(from, to) {
@@ -2293,10 +2274,7 @@ async function chunkWords(words, cfg, requestId) {
       reason = 'forced_single_word';
     }
 
-    // Resolve final layout.
-    // Overflow captions: deferred to a single batch DOM pass after the loop (non-debug).
-    // Debug mode: DOM for accurate metrics on every caption.
-    // Otherwise: use canvas estimates (no DOM reflow needed).
+    // Resolve final layout. Overflow captions: deferred to a single batch DOM pass after the loop (non-debug). Debug mode: DOM for accurate metrics on every caption. Otherwise: use canvas estimates (no DOM reflow needed).
     if (reason === 'last_word_that_fits_before_overflow') {
       if (shouldDebug) {
         let verify = measureTextLayout(chosenText);

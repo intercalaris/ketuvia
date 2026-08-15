@@ -1,6 +1,8 @@
 const DEFAULT_SETTINGS = {
   textSize: 'medium',
   targetLines: 2,
+  textColor: 'white',
+  textOpacity: 100,
   background: 'medium',
   position: 'center-low',
   font: 'atkinson',
@@ -18,12 +20,18 @@ const DEBUG_STORAGE_KEY = 'ketuviaDebug';
 const debugStorage = chrome.storage.local;
 
 function normalizeSettings(settings) {
-  const textSize = ['small', 'medium', 'large'].includes(settings?.textSize)
+  const textSize = ['small', 'medium', 'large', 'xlarge', 'xxlarge'].includes(settings?.textSize)
     ? settings.textSize
     : DEFAULT_SETTINGS.textSize;
-  const targetLines = [1, 2, 3].includes(Number(settings?.targetLines))
+  const targetLines = [1, 2, 3, 4, 5].includes(Number(settings?.targetLines))
     ? Number(settings.targetLines)
     : DEFAULT_SETTINGS.targetLines;
+  const textColor = ['white', 'yellow', 'green', 'cyan'].includes(settings?.textColor)
+    ? settings.textColor
+    : DEFAULT_SETTINGS.textColor;
+  const textOpacity = [100, 75, 50].includes(Number(settings?.textOpacity))
+    ? Number(settings.textOpacity)
+    : DEFAULT_SETTINGS.textOpacity;
   const background = ['light', 'medium', 'dark'].includes(settings?.background)
     ? settings.background
     : DEFAULT_SETTINGS.background;
@@ -43,7 +51,7 @@ function normalizeSettings(settings) {
     ? settings.position
     : DEFAULT_SETTINGS.position;
 
-  return { textSize, targetLines, background, position, font, allCaps };
+  return { textSize, targetLines, background, position, font, allCaps, textColor, textOpacity };
 }
 
 async function getGlobalEnabled() {
@@ -55,10 +63,7 @@ async function setGlobalEnabled(enabled) {
   await chrome.storage.local.set({ [ENABLED_STORAGE_KEY]: Boolean(enabled) });
 }
 
-// Settings travel the same way the on/off state does: written to storage here,
-// handed to the page by storage-bridge.js. That reaches every YouTube tab rather
-// than one, and does not depend on injecting into the active tab, which fails
-// silently whenever the active tab is not the one playing the video.
+// Settings travel like the on/off state: written to storage here, handed to the page by storage-bridge.js. That reaches every YouTube tab, not just the active one.
 async function loadSettings() {
   const items = await chrome.storage.local.get({ [SETTINGS_STORAGE_KEY]: null });
   return normalizeSettings(items[SETTINGS_STORAGE_KEY]);
@@ -77,6 +82,8 @@ function currentSettings(overrides) {
     textSize: valueOf('textSize'),
     targetLines: valueOf('targetLines'),
     background: valueOf('background'),
+    textColor: valueOf('textColor'),
+    textOpacity: valueOf('textOpacity'),
     position: document.querySelector('.position-grid button[data-active="1"]')?.dataset.value,
     font: document.querySelector('.font-list button[data-active="1"]')?.dataset.value,
     allCaps: capsToggle.checked,

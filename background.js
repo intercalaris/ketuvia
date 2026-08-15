@@ -1,10 +1,4 @@
-// Opens the welcome page once, and only once.
-//
-// On a fresh install that is obvious. It also opens for people who already had
-// Ketuvia before the welcome page existed, because until now nothing ever told
-// them the settings existed at all: a user reported hunting through the add-ons
-// manager, finding no options, and concluding there were none. The stored flag
-// means nobody sees it twice, however many times they update afterwards.
+// Opens the welcome page once and only once, on install and on the update that introduces it, since existing users were never told the settings exist at all.
 const SEEN_KEY = 'ketuviaWelcomeSeen';
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
@@ -13,9 +7,7 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   try {
     const stored = await chrome.storage.local.get({ [SEEN_KEY]: false });
     if (stored[SEEN_KEY]) return;
-    // Open first, then record it. If the tab cannot be opened, the flag stays
-    // unset and they get another chance on the next update. Seeing this twice is
-    // a much better failure than never seeing it.
+    // Open first, then record it, so a failed tab leaves the flag unset and they get another chance. Seeing it twice beats never seeing it.
     await chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
     await chrome.storage.local.set({ [SEEN_KEY]: true });
   } catch {

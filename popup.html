@@ -15,29 +15,50 @@
             <button id="ketuvia-off" type="button" data-value="false">Off</button>
           </div>
         </div>
-        <button id="reset" type="button">Reset</button>
+        <div class="top-right">
+          <label class="caps-row">
+            <span>All Caps</span>
+            <input id="caps-toggle" type="checkbox">
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+          <button id="reset" type="button">Reset</button>
+        </div>
       </section>
 
-      <section class="control-row">
+      <section class="control-grid">
         <div class="mini-setting lines-setting">
           <span>Lines</span>
-          <div class="segments" data-setting="targetLines">
+          <div class="segments narrow" data-setting="targetLines">
             <button type="button" data-value="1">1</button>
             <button type="button" data-value="2">2</button>
             <button type="button" data-value="3">3</button>
+            <button type="button" data-value="4">4</button>
+            <button type="button" data-value="5">5</button>
           </div>
         </div>
-        <label class="mini-setting caps-setting caps-row">
-          <span>All Caps</span>
-          <input id="caps-toggle" type="checkbox">
-          <span class="switch" aria-hidden="true"></span>
-        </label>
+        <div class="mini-setting color-setting">
+          <span>Text color</span>
+          <div class="segments swatches" data-setting="textColor" aria-label="Caption colour">
+            <button type="button" data-value="white" title="White" aria-label="White"></button>
+            <button type="button" data-value="yellow" title="Yellow" aria-label="Yellow"></button>
+            <button type="button" data-value="green" title="Green" aria-label="Green"></button>
+            <button type="button" data-value="cyan" title="Cyan" aria-label="Cyan"></button>
+          </div>
+        </div>
         <div class="mini-setting shade-setting">
-          <span>Shade</span>
+          <span>Background</span>
           <div class="segments wide" data-setting="background">
             <button type="button" data-value="light">Light</button>
             <button type="button" data-value="medium">Med</button>
             <button type="button" data-value="dark">Dark</button>
+          </div>
+        </div>
+        <div class="mini-setting opacity-setting">
+          <span>Text opacity</span>
+          <div class="segments opacity" data-setting="textOpacity" aria-label="Text opacity">
+            <button type="button" data-value="100">100%</button>
+            <button type="button" data-value="75">75%</button>
+            <button type="button" data-value="50">50%</button>
           </div>
         </div>
       </section>
@@ -49,6 +70,8 @@
             <button type="button" data-value="small">A</button>
             <button type="button" data-value="medium">A</button>
             <button type="button" data-value="large">A</button>
+            <button type="button" data-value="xlarge">A</button>
+            <button type="button" data-value="xxlarge">A</button>
           </div>
           <div class="font-list" data-setting="font">
             <button type="button" data-value="atkinson" style="font-family: 'Atkinson Hyperlegible', sans-serif;">Atkinson</button>

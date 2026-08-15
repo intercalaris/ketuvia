@@ -68,7 +68,7 @@ strong {
   overflow: hidden;
   line-height: 0;
 }
-.panel iframe { width: 329px; height: 430px; border: 0; }
+.panel iframe { width: 356px; height: 470px; border: 0; }  /* a starting size; welcome.js measures the real one */
 
 /* welcome.js shows only the wording for the browser in use. */
 .ff, .cr { display: none; }

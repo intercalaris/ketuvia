@@ -24,18 +24,22 @@ def copy_sources(dest: Path):
     dest.mkdir(parents=True)
     for f in SOURCE_FILES:
         shutil.copy2(ROOT / f, dest / f)
+        print(f'  {dest.name}: {f}', flush=True)
     for d in SOURCE_DIRS:
         shutil.copytree(ROOT / d, dest / d)
+        print(f'  {dest.name}: {d}/', flush=True)
 
 
 def make_zip(source_dir: Path, zip_path: Path):
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for file in sorted(source_dir.rglob('*')):
-            if file.is_file():
-                zf.write(file, file.relative_to(source_dir))
+        files = [f for f in sorted(source_dir.rglob('*')) if f.is_file()]
+        print(f'  zipping {len(files)} files', flush=True)
+        for file in files:
+            zf.write(file, file.relative_to(source_dir))
 
 
 def build_chrome():
+    print(f'building chrome {version}', flush=True)
     d = DIST / 'chrome'
     copy_sources(d)
     zip_path = DIST / f'ketuvia-chrome-{version}.zip'
@@ -44,6 +48,7 @@ def build_chrome():
 
 
 def build_firefox():
+    print(f'building firefox {version}', flush=True)
     d = DIST / 'firefox'
     copy_sources(d)
 

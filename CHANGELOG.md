@@ -19,6 +19,15 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.2.0
+- **Text colour.** White, yellow, green and cyan, the four broadcast caption colours. Requested by a Firefox user who found white text hard to read against bright video.
+- **Text opacity.** 100%, 75% or 50%, separate from the background Shade, matching how YouTube's own caption settings treat font opacity and background opacity as different controls.
+- **Four and five line captions**, on top of the existing one to three.
+- **Two larger text sizes for TVs and large monitors.** Broadcast captions (CEA-708, BBC) put a caption line at 1/15 of picture height, which is about 70 arcminutes at a normal couch distance and is independent of TV size, since viewing distance scales with the screen. The old flat maximum of 52px was 1/21 of a 1080-tall player and 1/42 of a 4K one, so it fell further behind the standard as the screen grew. The size table now has buckets for fullscreen (>=1800px) and 4K (>=2600px) players, and the largest size reaches 72px at 1080 and 120px at 2160.
+- Line length is unchanged by the new sizes. The caption box is measured in em, so a line stays near 38 characters at any size or screen, which is where broadcast subtitles sit (BBC 37, Netflix 42). Without this the two new sizes would have run to 48 characters and forced eye travel across a large screen.
+- A caption can never take more than 42% of the player height. Five lines at the largest size shrink to fit a short player instead of burying it.
+- Popup: five sizes and five line counts fit without the tallest A clipping, and the size letters share one baseline and grow upward. Colour sits above its opacity, lines above background.
+
 ### Version 4.1.2
 - Fix: a creator's caption line that is wider than the caption box no longer strands one or two words on the last row. Those captions now wrap evenly instead of filling the first row and spilling the remainder. Only captions that are a single creator-written line are affected, so captions the extension groups itself are untouched.
 - Fix: when a creator's line is too long to fit even one caption, it is split into equal parts rather than filling the first and leaving a word alone in the next.

@@ -35,11 +35,9 @@
 }
 
 body {
-  /* Centres itself when the same page is shown as the add-on's Options panel,
-     which is wider than the toolbar popup. No effect in the popup, where the
-     window is exactly this wide. */
+  /* Centres itself when this page is shown as the add-on's Options panel, which is wider than the toolbar popup. No effect in the popup itself. */
   margin: 0 auto;
-  width: 274px;
+  width: 296px;
   color: #c8c6bc;
   background: #0c0d09;
   font: 12px/1.2 system-ui, sans-serif;
@@ -47,7 +45,7 @@ body {
 }
 
 main {
-  padding: 8px 8px 4px;
+  padding: 6px 8px 4px;
 }
 
 .mini-setting,
@@ -61,23 +59,73 @@ main {
 }
 
 .top-row,
-.control-row,
+.control-grid,
 .font-position-row {
-  margin-top: 7px;
+  margin-top: 5px;
 }
 
+/* One two-column rhythm for the whole panel: equal cells, controls filling them, labels on a common left edge. */
+.control-grid,
+.font-position-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  row-gap: 6px;
+  column-gap: 10px;
+}
+
+.control-grid .mini-setting,
+.font-setting,
+.position-setting {
+  display: grid;
+  grid-template-columns: 1fr;
+  justify-items: stretch;
+  gap: 3px;
+  width: auto;
+}
+
+.control-grid .mini-setting > span,
+.font-setting > span,
+.position-setting > span {
+  text-align: left;
+  line-height: 1;
+}
+
+.control-grid .segments,
+.font-size-segments,
+.font-list,
+.position-grid {
+  width: 100%;
+}
+
+.control-grid .segments button {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+.segments.font-size-segments button {
+  flex: 1 1 0;
+  width: auto;
+}
+
+/* The top row obeys the same two columns, so All Caps and Reset line up with the right-hand column below. */
 .top-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   margin-top: 0;
 }
 
-.control-row {
+.top-right {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
+  gap: 6px;
+}
+
+.top-row .caps-row {
   gap: 5px;
 }
 
@@ -85,20 +133,9 @@ main {
   display: grid;
   grid-template-columns: 1fr;
   justify-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
-.lines-setting {
-  width: 74px;
-}
-
-.shade-setting {
-  width: 118px;
-}
-
-.caps-setting {
-  width: 58px;
-}
 
 .ketuvia-setting {
   display: flex;
@@ -110,31 +147,10 @@ main {
   gap: 7px;
 }
 
-.font-position-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-}
-
-.font-setting,
-.position-setting {
-  display: grid;
-  grid-template-columns: 1fr;
-  justify-items: center;
-  gap: 4px;
-}
-
-.font-setting > span,
-.position-setting > span {
-  text-align: center;
-  line-height: 1;
-}
-
 .font-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 3px;
-  width: 124px;
 }
 
 .font-list button {
@@ -202,8 +218,26 @@ main {
   cursor: pointer;
 }
 
-.segments.wide button {
-  width: 38px;
+.segments.opacity button {
+  font-size: 10.5px;
+}
+
+/* Colour swatches read as colour, so the label is the colour itself and the active one gets a ring. */
+.segments.swatches button {
+  height: 15px;
+  margin: 1.5px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+
+.segments.swatches button[data-value="white"] { background: #ffffff; }
+.segments.swatches button[data-value="yellow"] { background: #ffff00; }
+.segments.swatches button[data-value="green"] { background: #00ff00; }
+.segments.swatches button[data-value="cyan"] { background: #00ffff; }
+
+.segments.swatches button[data-active="1"] {
+  outline: 2px solid #c8c6bc;
+  outline-offset: 1px;
 }
 
 .ketuvia-segments button {
@@ -212,16 +246,21 @@ main {
 
 .font-size-segments {
   align-items: flex-end;
-  margin-bottom: 3px;
-  width: max-content;
+  margin-bottom: 1px;
 }
 
+/* One shared baseline: the space under a glyph scales with its size, so cancel it and the A's grow upward from a common line. */
 .font-size-segments button {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  padding-bottom: 3px;
+  padding-bottom: calc(7px - 0.21em);
   line-height: 1;
+}
+
+/* The pill only needs to clear the tallest A's cap height above the shared baseline, so it stays short. */
+.font-size-segments button {
+  height: 22px;
 }
 
 .font-size-segments button[data-value="small"] {
@@ -229,11 +268,19 @@ main {
 }
 
 .font-size-segments button[data-value="medium"] {
-  font-size: 12px;
+  font-size: 11.5px;
 }
 
 .font-size-segments button[data-value="large"] {
-  font-size: 15px;
+  font-size: 14px;
+}
+
+.font-size-segments button[data-value="xlarge"] {
+  font-size: 16.5px;
+}
+
+.font-size-segments button[data-value="xxlarge"] {
+  font-size: 19px;
 }
 
 .segments button[data-active="1"] {
@@ -243,7 +290,7 @@ main {
 
 .position-grid {
   display: grid;
-  grid-template-columns: repeat(3, 36px);
+  grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(7, 1fr);
   gap: 2px;
   height: 101px;
@@ -253,7 +300,7 @@ main {
 }
 
 .position-grid button {
-  width: 36px;
+  width: 100%;
   height: 100%;
   padding: 0;
   border: 0;
@@ -271,7 +318,7 @@ main {
 }
 
 #reset {
-  width: 56px;
+  width: 46px;
   height: 20px;
   border: 0;
   border-radius: 6px;

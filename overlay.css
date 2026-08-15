@@ -82,6 +82,8 @@
   --rechunk-target-lines: 2;
   --rechunk-bg-opacity: 0.45;
   --rechunk-font-family: "Atkinson Hyperlegible";
+  --rechunk-color: #ffffff;
+  --rechunk-text-opacity: 1;
 
   position: absolute;
   left: 50%;
@@ -103,7 +105,7 @@
   letter-spacing: 0.01em;
   font-feature-settings: var(--rechunk-font-feature-settings, normal);
 
-  color: #fff;
+  color: var(--rechunk-color, #fff);
   text-align: center;
   background: rgba(0, 0, 0, var(--rechunk-bg-opacity));
   border-radius: 6px;
@@ -125,14 +127,16 @@
 
 #rechunk-overlay .rechunk-text,
 #rechunk-measurer .rechunk-text {
+  /* Fades the text only. Putting it on the overlay would fade the shade behind it too. */
+  opacity: var(--rechunk-text-opacity, 1);
   width: 100%;
   white-space: pre-wrap;
   word-wrap: break-word;
   text-align: inherit;
 }
 
-/* Even out the rows when a creator's own line overflows the box. */
-#rechunk-overlay[data-creator-line="1"] .rechunk-text {
+/* Even the rows out so a caption never ends with one word alone on the last row. */
+#rechunk-overlay .rechunk-text {
   text-wrap: balance;
 }
 

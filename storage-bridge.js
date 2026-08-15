@@ -10,9 +10,7 @@
     document.documentElement.dispatchEvent(new Event('ketuvia-enabled-sync'));
   }
 
-  // Appearance settings reach the page the same way the on/off state does. The
-  // popup writes them to storage and this hands them to inject.js through the
-  // document, which works in every tab and needs no scripting injection.
+  // The popup writes appearance settings to storage and this hands them to inject.js through the document, which works in every tab and needs no scripting injection.
   function syncSettings(settings) {
     if (!settings) return;
     document.documentElement.dataset.ketuviaSettings = JSON.stringify(settings);
@@ -40,9 +38,7 @@
       syncSettings(items[SETTINGS_STORAGE_KEY]);
       return;
     }
-    // Settings used to be kept in the page's own localStorage. Carry them across
-    // once so an existing user's choices survive the move to extension storage
-    // instead of silently reverting to the defaults.
+    // Settings used to live in the page's localStorage. Carry them over once so an existing user's choices survive the move instead of reverting to defaults.
     let previous = null;
     try { previous = JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) || 'null'); }
     catch {}
