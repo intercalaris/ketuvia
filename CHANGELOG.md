@@ -19,7 +19,7 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
-### Version 4.3.1
+### Version 4.3.2
 - **Fix: captions were breaking at YouTube's own segment boundaries**, so words that belonged in one caption were shown as two and the chosen line count often went unused. Long segments are still split so captions fit the box; line breaks the creator authored, such as song lyrics, are still kept.
 - **Lines are now 1 to 3.** Subtitle guidelines cap a caption at two lines, three by exception, so 4 and 5 have been removed. A stored 4 or 5 becomes 3.
 - **Caption width is now Auto, 1/3, 1/2 and 2/3.** 1/3 is narrower than Auto reaches in a windowed player or at the two TV sizes. 3/4 has been removed: at normal text sizes it ran far past the line length subtitles are meant to hold. A stored 3/4 becomes 2/3.
