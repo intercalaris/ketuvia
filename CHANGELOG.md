@@ -17,6 +17,25 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - **Chrome Web Store OAuth refresh token expires every 7 days** because the Google Cloud OAuth consent screen is in Testing mode. Fix: go to the OAuth consent screen in Google Cloud Console and publish the app (switch from Testing to Production). Until then, the `CWS_REFRESH_TOKEN` GitHub secret needs to be manually rotated every week.
   - Fixed 2026-05-16: switched OAuth consent screen to Production mode. Token no longer expires.
 
+## Keeping Past Faults Out
+
+Each of these ran green while the fault was live, which is why the fault shipped. Every one now has a
+check that fails on the broken version and passes on the fixed one.
+
+| Fault | What caused it | What catches it now |
+| --- | --- | --- |
+| Settings needed repeated clicking, then flicked back | The panel built each save from whichever buttons looked active, so a click before storage loaded saved the defaults | `tools/popupsim.mjs`, click before the load resolves |
+| The same flicking, returning in 4.3.2 | A second copy of `syncFromStorage` replaced the fixed one and repainted the panel from a read issued before the click | `tools/popupsim.mjs`, click while a later read is in flight; plus a duplicate-function check in `configaudit.mjs` |
+| Captions used more lines than chosen | A whole transcript line arrived as one unit the chunker could not wrap | `ketcheck fit`, judged over every caption built, not the few that happen to play |
+| Captions stopped merging across segments | A forced break at every segment boundary | `ketcheck lines`, which reports what ends each caption |
+| Caption text went missing | Interpolated word times collided and were dropped as out of order | `ketcheck text`, transcript word count against caption word count |
+| Bold reused captions measured at the regular weight | Weight was missing from the rebuild check and from the font wait | `ketcheck flows`, which runs bold as one of its configurations |
+
+Two testing lessons are baked in as well. The storage stub reads its value when the read is serviced
+rather than when it resolves, because reading at resolve time hid the stale-read race entirely. And
+the panel stub is built from `popup.html`, because a hand-written stub silently lost 19 of the 21
+position buttons and reported success anyway.
+
 ## Shipped Changes
 
 ### Version 4.3.3

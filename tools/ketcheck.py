@@ -18,6 +18,11 @@ USAGE = """ketcheck.py <command> [args]
   text  [video...]   no caption text is lost between transcript and captions
   lines [video] [n]  do captions use the line count asked for, and what ends them early
   width [px...]      what share of the player the Auto box takes, per size
+  afterupdate [vid]  does an already-open tab still obey the panel after the extension updates
+  latency [video]    how long a change takes to reach the screen, and what shows meanwhile
+  multitab [video]   two tabs open, change settings fast, watch for a value coming back
+  panel              click every control in the real settings panel and check each one sticks
+  flicker [video]    change settings on a playing video and watch for a setting that reverts
   popup [png]        screenshot the settings popup
 """
 
@@ -247,6 +252,237 @@ def cmd_width(args):
     return [], 'width table computed', ''
 
 
+CONTROLS = [
+    ('targetLines', ['1', '3', '2']),
+    ('textColor', ['yellow', 'cyan', 'white']),
+    ('captionWidth', ['third', 'twothirds', 'auto']),
+    ('background', ['0', '100', '50']),
+    ('textOpacity', ['50', '100']),
+    ('textSize', ['small', 'xxlarge', 'medium']),
+]
+TOGGLES = ['caps-toggle', 'outline-toggle', 'bold-toggle']
+TOGGLE_KEY = {'caps-toggle': 'allCaps', 'outline-toggle': 'textOutline', 'bold-toggle': 'textBold'}
+
+
+def stored_settings():
+    got = H.send('storage.get', {'keys': ['ketuviaSettings']})
+    return (got or {}).get('ketuviaSettings') or {}
+
+
+def cmd_panel(args):
+    """Click each control in the real rendered panel and check the click sticks and stays.
+
+    Pass a number to slow the panel's storage reads by that many ms, which is what a slower machine
+    does and what opens every race the panel has.
+    """
+    delay = next((a for a in args if a.isdigit()), None)
+    url = H.send('runtime.url', {'path': 'popup.html'})
+    if delay:
+        url = f'{url}?probeDelay={delay}'
+        print(f'  storage reads slowed by {delay}ms', flush=True)
+    H.send('storage.set', {'ketuviaSettings': dict(DEFAULTS)})
+    H.send('tabs.only', {'url': url})
+    time.sleep(4)
+
+    hello = H.send('panel', {'op': 'ping'})
+    if not (hello or {}).get('ok'):
+        raise H.SetupError(f'the panel probe did not answer: {hello}')
+    print(f"  probe answered from {hello.get('url')}", flush=True)
+
+    bad = []
+    for setting, values in CONTROLS:
+        for value in values:
+            sel = f'[data-setting="{setting}"] button[data-value="{value}"]'
+            res = H.send('panel', {'op': 'click', 'selector': sel})
+            if not (res or {}).get('ok'):
+                bad.append(f'{setting}={value}: {(res or {}).get("reason")}')
+                continue
+            # Watch rather than read once: a click that lands then reverts is the reported fault.
+            w = H.send('panel', {'op': 'watch', 'selector': sel, 'prop': 'active',
+                                 'ms': 1500, 'everyMs': 50}, timeout=40)
+            series = (w or {}).get('series') or []
+            settled = series[-1] if series else None
+            reverted = any(series[i] != '1' for i in range(1, len(series)))
+            saved = str(stored_settings().get(setting))
+            ok = settled == '1' and saved == str(value) and not reverted
+            if not ok:
+                bad.append(f'{setting}={value}: stored {saved}, ended {settled}, reverted {reverted}')
+            print(f'  {setting:<13}{value:<10}stored {saved:<10}ended {settled}'
+                  f"{'  REVERTED' if reverted else ''}", flush=True)
+
+    for toggle in TOGGLES:
+        for _ in range(2):
+            before = bool(stored_settings().get(TOGGLE_KEY[toggle]))
+            H.send('panel', {'op': 'click', 'selector': f'#{toggle}'})
+            time.sleep(1.0)
+            after = bool(stored_settings().get(TOGGLE_KEY[toggle]))
+            if after == before:
+                bad.append(f'{toggle} did not change ({before} -> {after})')
+            print(f'  {toggle:<16}{before} -> {after}', flush=True)
+
+    return bad, 'every control sticks in the real panel', 'did not stick: ' + '; '.join(bad)
+
+
+def rendered_font(match):
+    r = H.send('measure.compare', {'match': match, 'text': 'x'})
+    return ((r or {}).get('overlay') or {}).get('size')
+
+
+def cmd_afterupdate(args):
+    """An auto-update restarts the extension and orphans every open tab. Does the tab still listen?"""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+
+    H.apply_settings(dict(DEFAULTS, textSize='small'))
+    before = rendered_font(match)
+    H.apply_settings(dict(DEFAULTS, textSize='xxlarge'))
+    grew = rendered_font(match)
+    print(f'  before the update: {before} then {grew}', flush=True)
+    if before == grew:
+        raise H.SetupError('settings were not being applied even before the update')
+
+    print('  restarting the extension, the way an auto-update does', flush=True)
+    H.send('runtime.reload')
+    time.sleep(8)
+    for attempt in range(8):
+        ping = H.send('tabs.list')
+        if isinstance(ping, list):
+            print(f'  extension back after about {8 + attempt * 4}s', flush=True)
+            break
+        time.sleep(4)
+    else:
+        raise H.SetupError('the extension never came back after restarting')
+
+    # The tab was never reloaded. This is the state a user is in when an update lands mid-video.
+    H.apply_settings(dict(DEFAULTS, textSize='small'), settle=4)
+    after = rendered_font(match)
+    print(f'  after the update, asked for small: {after}', flush=True)
+
+    bad = []
+    if after == grew:
+        bad.append(f'an already-open tab ignored the change ({grew} stayed) until reloaded')
+    return bad, 'an open tab still obeys the panel after an update', '; '.join(bad)
+
+
+# The settings a real user reported the fault on, rather than the defaults.
+JOHAN = {'targetLines': 2, 'textSize': 'xlarge', 'font': 'noto', 'position': 'center-lowish',
+         'allCaps': False, 'textColor': 'yellow', 'textOpacity': 75, 'background': 100,
+         'captionWidth': 'half', 'textOutline': False, 'textBold': False}
+
+
+def cmd_latency(args):
+    """How long a change takes to show, and whether anything wrong shows on the way."""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    pairs = word_times(vid)
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+    H.apply_settings(JOHAN)
+    H.send('video', {'match': match, 'seek': round(pairs[0][1]) + 3 if pairs else 5,
+                     'play': True, 'mute': True})
+    time.sleep(3)
+
+    bad = []
+    steps = [('textSize', 'large', 'fontSize'), ('textSize', 'xlarge', 'fontSize'),
+             ('font', 'cascadia', 'fontFamily'), ('font', 'noto', 'fontFamily'),
+             ('textColor', 'cyan', 'color'), ('captionWidth', 'twothirds', 'width')]
+    for setting, value, prop in steps:
+        # Read first: without a before value, a change that already landed looks like no change.
+        pre = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
+                               'prop': prop, 'ms': 1, 'everyMs': 10}, timeout=20)
+        before_value = pre[0] if isinstance(pre, list) and pre else None
+        H.send('storage.set', {'ketuviaSettings': dict(JOHAN, **{setting: value})})
+        series = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
+                                  'prop': prop, 'ms': 3000, 'everyMs': 50}, timeout=45)
+        if not isinstance(series, list) or not series:
+            bad.append(f'{setting}={value}: nothing to watch')
+            continue
+        changed_at = next((i for i, v in enumerate(series) if v != before_value), None)
+        distinct = [v for i, v in enumerate(series) if i == 0 or v != series[i - 1]]
+        took = 'never' if changed_at is None else f'{changed_at * 50}ms'
+        print(f'  {setting}={value:<10}{prop:<12}was {str(before_value)[:18]:<20}'
+              f'took {took:<8}{len(distinct)} states', flush=True)
+        if changed_at is None:
+            bad.append(f'{setting}={value} never reached the screen (stayed {before_value})')
+        elif changed_at * 50 > 1500:
+            bad.append(f'{setting}={value} took {changed_at * 50}ms to show')
+        if len(distinct) > 2:
+            bad.append(f'{setting}={value} passed through {len(distinct)} states: {distinct}')
+    return bad, 'changes reach the screen promptly and cleanly', '; '.join(bad)
+
+
+def cmd_multitab(args):
+    """Two YouTube tabs, settings changed quickly. A value that comes back is another tab echoing a stale copy."""
+    vid = args[0] if args else DEFAULT_VIDEO
+    second = args[1] if len(args) > 1 else 'wXUEIIeDQ5c'
+    match = f'*{vid}*'
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+    H.apply_settings(DEFAULTS)
+
+    H.send('tabs.create', {'url': f'https://www.youtube.com/watch?v={second}', 'active': False})
+    time.sleep(8)
+    tabs = H.send('tabs.list')
+    print(f'  {len(tabs) if isinstance(tabs, list) else "?"} tabs open', flush=True)
+    H.send('video', {'match': f'*{second}*', 'mute': True, 'play': True, 'captions': True})
+    time.sleep(3)
+    H.send('video', {'match': match, 'mute': True, 'play': True, 'captions': True})
+    time.sleep(2)
+
+    sizes = ['small', 'xxlarge', 'small', 'xxlarge']
+    for size in sizes:
+        H.send('storage.set', {'ketuviaSettings': dict(DEFAULTS, textSize=size)})
+        time.sleep(0.35)
+    series = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
+                              'prop': 'fontSize', 'ms': 4000, 'everyMs': 50}, timeout=45)
+    if not isinstance(series, list) or not series:
+        raise H.SetupError(f'nothing to watch: {series}')
+    seen = [v for i, v in enumerate(series) if i == 0 or v != series[i - 1]]
+    settled = seen[-1]
+    want = H.send('storage.get', {'keys': ['ketuviaSettings']})
+    wanted_size = ((want or {}).get('ketuviaSettings') or {}).get('textSize')
+    print(f'  font size went {seen}', flush=True)
+    print(f'  storage says {wanted_size}, screen settled at {settled}', flush=True)
+
+    # After the last change nothing should move again, and it must not land on an earlier value.
+    tail = series[len(series) // 2:]
+    late_change = len(set(tail)) > 1
+    bad = []
+    if late_change:
+        bad.append(f'the caption was still changing after the last setting: {seen}')
+    return bad, 'two tabs do not fight over settings', '; '.join(bad)
+
+
+def cmd_flicker(args):
+    """A setting that lands and then reverts. One reading cannot see it, so watch over time."""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    pairs = word_times(vid)
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+    H.apply_settings(DEFAULTS)
+    H.send('video', {'match': match, 'seek': round(pairs[0][1]) + 3 if pairs else 5,
+                     'play': True, 'mute': True})
+    time.sleep(3)
+
+    bad = []
+    changes = [('textSize', 'xxlarge', 'fontSize'), ('textSize', 'medium', 'fontSize'),
+               ('textColor', 'yellow', 'color'), ('targetLines', 1, '--rechunk-text-width')]
+    for setting, value, prop in changes:
+        H.send('storage.set', {'ketuviaSettings': dict(DEFAULTS, **{setting: value})})
+        series = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
+                                  'prop': prop, 'ms': 2500, 'everyMs': 50}, timeout=40)
+        if not isinstance(series, list) or not series:
+            bad.append(f'{setting}={value}: nothing to watch')
+            continue
+        seen = [v for i, v in enumerate(series) if i == 0 or v != series[i - 1]]
+        # Settling is one change. Going back to a value already left behind is the flash.
+        reverted = any(seen[i] in seen[:i] for i in range(1, len(seen)))
+        print(f'  {setting}={value:<9}{prop:<22}{len(seen)} distinct: {seen[:6]}', flush=True)
+        if reverted:
+            bad.append(f'{setting}={value} reverted: {seen}')
+
+    return bad, 'no setting reverted after it landed', 'reverting: ' + '; '.join(bad)
+
+
 def cmd_popup(args):
     out_png = args[0] if args else os.path.join(H.WORK, 'popup.png')
     url = H.send('runtime.url', {'path': 'popup.html'})
@@ -266,7 +502,8 @@ def cmd_popup(args):
 
 
 COMMANDS = {'flows': cmd_flows, 'fit': cmd_fit, 'text': cmd_text, 'lines': cmd_lines,
-            'width': cmd_width, 'popup': cmd_popup}
+            'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
+            'popup': cmd_popup}
 
 if __name__ == '__main__':
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
