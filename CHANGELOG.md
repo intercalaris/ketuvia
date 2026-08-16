@@ -8,7 +8,7 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - Change: use original YouTube caption boundaries more intelligently for auto captions when they indicate speaker or utterance changes without explicit `>>` markers
 
 ## Tooling / Release Process
-- Proposed, not yet applied: remove the version check from the CI detect step. CI compares the manifest version against the previous commit and fails if unchanged, which forces an arbitrary bump when a publish attempt fails, and the stores already reject duplicate versions themselves. The edit exists in the working tree and is deliberately uncommitted pending a decision.
+- Proposed: drop the CI version check. It fails a build when the manifest version is unchanged, which forces an arbitrary bump after a failed publish, and the stores reject duplicate versions anyway.
 - Release publishing is now controlled by commit-message keywords: `[chrome]`, `[firefox]`, `[chrome+firefox]`, or `[replace-chrome]`
 - Store publishing requires a manifest version bump; commits without release keywords do not publish to any store
 - `[replace-chrome]` cancels a pending Chrome Web Store review before uploading the new Chrome version
@@ -19,74 +19,62 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.3.1
+- **Fix: captions were breaking at YouTube's own segment boundaries**, so words that belonged in one caption were shown as two and the chosen line count often went unused. Long segments are still split so captions fit the box; line breaks the creator authored, such as song lyrics, are still kept.
+- **Lines are now 1 to 3.** Subtitle guidelines cap a caption at two lines, three by exception, so 4 and 5 have been removed. A stored 4 or 5 becomes 3.
+- **Caption width adds 1/3**, for narrower lines than Auto gives in a windowed player or at the two TV sizes.
+- **Caption colours now match the swatches in the settings panel.** The softer shades are easier to read for long stretches, and the panel now previews what appears on screen.
+- **The outline is slightly heavier** and draws in eight directions, so the corners of letters no longer thin out.
+
 ### Version 4.3.0
-- **Fix: settings sometimes only took effect after repeated clicking, flashing and reverting.** The popup painted the defaults immediately, loaded the stored settings asynchronously, and built every save by reading whichever buttons looked active at that instant. A click landing before the load finished saved the defaults plus that one click, silently wiping the user's colour, size and font, which then flashed on screen for a frame before reverting. Reported by a Firefox user with a screen recording; the flash measured one to two frames. The popup now holds its settings in memory, seeded once from storage, and a click that arrives early waits for the load instead of acting on defaults. Proven with a simulation that runs the real popup.js against a slow storage: the released code loses the user's settings, the fixed code keeps them.
-- **Background is now a strength scale: 0, 25, 50, 75, 100.** 100 is a solid block, requested for shows with subtitles burned into the picture that a translucent box cannot hide. 0 removes the box entirely. Existing stored choices map across, light to 25, medium to 50, dark to 75, so nobody's look changes on update.
-- **Outline toggle.** A hard dark outline around the letters, the way broadcast subtitles stay readable with no box at all. Pairs with Background 0 for shows whose picture already carries subtitles.
-- **Bold toggle.** Heavier letters for readers who want more weight than the outline gives. Bold is the only setting that changes how wide the letters are without changing the font, the size or the box, and two places assumed nothing had changed: the check that decides whether captions need rebuilding skipped the rebuild as unnecessary, so captions kept the word grouping measured at the regular weight, and the font loader always waited for the regular weight even while rendering bold, so the first measurements ran against a font that was not on screen yet. Both now account for weight.
-- **Fix: captions could use more lines than the number chosen.** On videos where YouTube sends the transcript as whole lines rather than word by word, each line arrived as a single unbreakable unit, so a line too long for the box was shown whole and spilled onto an extra row instead of being split into two captions. On one test video a third of all captions were such units, and the chunker's own record showed 27 of them exceeding a two line setting. Those lines are now split into words the chunker can re-wrap, while the original segment boundary is kept so captions still appear on the timing the video gave them. Captions authored as separate lines, such as song lyrics, are untouched. Verified word for word on four videos: no caption text is lost, and 884 captions across them all fit the chosen line count.
-- **Caption width control: Auto, 1/2, 2/3, 3/4 of the player.** Auto keeps the width that follows the font size, which holds a line near 38 characters and remains the default. The fractions are for readers who prefer longer lines over more rows. A width change rebuilds the captions so every line is measured for the new box, and Shorts ignore the setting since their narrow box exists to clear the action buttons. Requested by the same user, whose box sat at about a third of his TV's width.
+- **Fix: settings sometimes needed repeated clicking and flashed back to the previous look.** The popup built each save from whichever buttons looked active at that moment, so a click landing before storage loaded wrote the defaults over stored choices. It now holds its settings in memory, and an early click waits for the load.
+- **Background is a 0 to 100 scale: 0, 25, 50, 75, 100.** 100 is a solid block for pictures with subtitles burned in; 0 removes the box. Stored light, medium and dark map to 25, 50 and 75.
+- **Outline toggle.** A dark outline around the letters, for reading with no background box.
+- **Bold toggle.**
+- **Fix: captions could use more lines than the number chosen.** On videos whose transcript arrives as whole lines rather than word by word, a line too wide for the box was shown whole and spilled onto an extra row. Those lines are now split into words the chunker can re-wrap.
+- **Caption width: Auto, 1/2, 2/3 or 3/4 of the player.** Auto follows the font size and holds a line near 38 characters. Shorts ignore the setting, since their narrow box exists to clear the action buttons.
 
 ### Version 4.2.1
-- **Fix: captions invisible after moving between a Short and a normal video.** YouTube leaves a hidden 0x0 player in the page when you navigate between Shorts and watch pages, and it can sit ahead of the real one. The extension found the player through the first `video` element in the document, so it mounted the caption overlay inside the hidden one and everything rendered at zero size. Reported with two diagnostics: a watch page whose player was `shorts-player` at 0x0, and a Short whose player was `movie_player` at 0x0. The player is now chosen by taking the visible players and preferring the one that belongs to the current page, and the overlay moves if it ever finds itself in the wrong player.
-- The welcome page now appears on install and again only when the major version changes, so 4.2 to 4.3 is silent but 4.x to 5.0 says hello again. An older install carrying the plain seen flag is treated as having seen it for version 4.
+- **Fix: captions invisible after moving between a Short and a normal video.** YouTube leaves a hidden 0x0 player in the page, and the overlay could mount inside it. The player is now chosen from the visible ones, preferring the one that belongs to the current page.
+- The welcome page appears on install and on major version changes only.
 
 ### Version 4.2.0
-- **Text colour.** White, yellow, green and cyan, the four broadcast caption colours. Requested by a Firefox user who found white text hard to read against bright video.
-- **Text opacity.** 100%, 75% or 50%, separate from the background Shade, matching how YouTube's own caption settings treat font opacity and background opacity as different controls.
-- **Four and five line captions**, on top of the existing one to three.
-- **Two larger text sizes for TVs and large monitors.** Broadcast captions (CEA-708, BBC) put a caption line at 1/15 of picture height, which is about 70 arcminutes at a normal couch distance and is independent of TV size, since viewing distance scales with the screen. The old flat maximum of 52px was 1/21 of a 1080-tall player and 1/42 of a 4K one, so it fell further behind the standard as the screen grew. The size table now has buckets for fullscreen (>=1800px) and 4K (>=2600px) players, and the largest size reaches 72px at 1080 and 120px at 2160.
-- Line length is unchanged by the new sizes. The caption box is measured in em, so a line stays near 38 characters at any size or screen, which is where broadcast subtitles sit (BBC 37, Netflix 42). Without this the two new sizes would have run to 48 characters and forced eye travel across a large screen.
-- A caption can never take more than 42% of the player height. Five lines at the largest size shrink to fit a short player instead of burying it.
-- Popup: five sizes and five line counts fit without the tallest A clipping, and the size letters share one baseline and grow upward. Colour sits above its opacity, lines above background.
+- **Text colour:** white, yellow, green and cyan.
+- **Text opacity:** 100%, 75% or 50%, separate from the background.
+- **Four and five line captions.**
+- **Two larger text sizes for TVs and large monitors.** Broadcast standards put a caption line at 1/15 of picture height, so a flat 52px maximum fell further behind as screens grew. The largest size now reaches 72px at 1080 and 120px at 2160.
+- Line length is unchanged by size. The box is measured in em, so a line stays near 38 characters, where broadcast subtitles sit (BBC 37, Netflix 42).
+- A caption never takes more than 42% of the player height.
+- Popup: five sizes and line counts fit without the tallest A clipping, and the size letters share one baseline.
 
 ### Version 4.1.2
-- Fix: a creator's caption line that is wider than the caption box no longer strands one or two words on the last row. Those captions now wrap evenly instead of filling the first row and spilling the remainder. Only captions that are a single creator-written line are affected, so captions the extension groups itself are untouched.
-- Fix: when a creator's line is too long to fit even one caption, it is split into equal parts rather than filling the first and leaving a word alone in the next.
-- Neither fix merges text across a creator's line break, so lyrics and verse keep their lines and nothing moves into an earlier caption.
+- Fix: a creator's line wider than the caption box no longer strands one or two words on the last row; it wraps evenly.
+- Fix: a creator's line too long for a single caption is split into equal parts.
+- Neither fix merges text across a creator's line break, so lyrics and verse keep their lines.
 
 ### Version 4.1.1
-- Settings are now reachable from the browser's own add-ons manager, not only from the toolbar icon. `options_ui` points at the same panel, so Firefox shows it under the three dots in about:addons and Chrome shows it under Details. A user reported hunting there first, finding no Options entry, and concluding the extension had no settings at all. This only became possible in 4.1.0: before then the panel needed a YouTube tab in focus to do anything, so opening it from the add-ons page would have done nothing.
+- Settings open from the browser's add-ons manager as well as the toolbar icon; `options_ui` points at the same panel.
 
 ### Version 4.1.0
-- **Fix: popup settings did nothing for some users.** Reported by a Firefox user whose captions worked and whose popup looked normal, but where only On/Off and Reset had any effect.
-
-  **The bug:** On/Off and Debug were written to `chrome.storage`, picked up by `storage-bridge.js`, and applied in every tab. Everything else went through `runInTab()`, which called `chrome.scripting.executeScript` into the MAIN world of *the active tab of the current window*, and ended in `catch { return null; }`. Three things made that return null on a perfectly healthy install: no tab id, the injected function's own `isYouTube` guard, and destructuring an empty result array. All were swallowed silently. It failed in both directions, so the popup could not read the current settings either, which is why it always displayed the defaults.
-
-  **The fix:** settings now travel exactly like the On/Off state. The popup writes them to `chrome.storage.local`, `storage-bridge.js` hands them to the page on the document, and `inject.js` applies them. No injection, no MAIN world, no active-tab targeting, and a change now applies to every open YouTube tab instead of one. `runInTab` and the `getActiveTab` helper are gone, and the four duplicated settings handlers collapse into one `changeSettings` call.
-
-- **Fix: an appearance change could be dropped until something else happened.** `applySettings` hands off to a rebuild that starts with `if (!player || !STATE.words.length) return;`, and on a font change the overlay restyle is deliberately deferred until after the rebuild to avoid a flash of the wrong line count. When no transcript had been captured yet there was no rebuild, so the new appearance stayed in `STATE` and only reached the screen when an unrelated event, a window resize or the next video, applied the layout. Both rebuild paths now apply the overlay layout when they cannot run, which keeps the anti-flash behaviour for the case it was written for.
-
-- Debug: a Firefox caption-loading diagnostic ships with this version. It is inert unless the user is on Firefox and turns Debug mode on, in which case it records a timeline that survives page refreshes and saves a JSON report when Debug mode is turned off again. Written to chase the refresh race where YouTube's `timedtext` request can fire before the fetch interceptor is installed.
-
-- Firefox: minimum version raised from 109 to 128. `inject.js` is declared `"world": "MAIN"`, which Firefox only supports from 128 (bug 1736575). Between 109 and 127 the add-on installed and did nothing at all, since it could not patch the page's `fetch`, read `ytInitialPlayerResponse`, or reach `player.setOption`.
-
-- Fix: creator-written captions that were wrapped by a tool now reflow to fill the chosen number of lines.
-
-  **Background:** 3.2.7 made the extension respect a creator's line breaks in manually written captions and never merge across them, so a music video's lyrics stay one line per caption. That relies on the line breaks being the creator's choice.
-
-  **The bug:** Many professionally captioned videos are not written line by line. The transcript is run through a tool that fits it to a fixed line width, typically 50 characters, and hands YouTube two-line blocks. Those breaks carry no meaning, but the extension treated them as intent, so a caption could never be more than half of one wrapped block. At medium and large text the block is wider than the caption box, so it spilled one or two words onto a second line and stopped there, and a three-line setting produced the same two lines as a two-line setting. Small text hid the problem because its box is wider than the source lines, and Cascadia hid it because a monospaced font overflows far enough that the split looks deliberate.
-
-  **The fix:** `linesWereFittedToAWidth` in `getTextEventInfo` asks three questions of a manual track, each ruling out a kind of writing whose line breaks are real. Do most captions contain a line break, which excludes the one-line-per-caption shape nearly every lyric track uses. Are the line lengths uniform, which excludes verse, whose lines are as long as the phrase. Does the text repeat itself, which excludes sung verse with short even lines, such as a chorus. Only when all three point the same way are the breaks discarded and the words handed to the normal chunk builder. Word timing is untouched either way.
+- **Fix: popup settings did nothing for some users.** Everything except On/Off and Debug was applied by injecting into the active tab, which returned null on a healthy install for three separate reasons, all swallowed silently. Settings now travel through `chrome.storage` like the On/Off state, so a change reaches every open YouTube tab.
+- **Fix: an appearance change could be dropped until an unrelated event.** A rebuild that could not run left the new look in memory. Both rebuild paths now apply the layout when they cannot rebuild.
+- **Fix: creator captions wrapped by a tool now reflow to fill the chosen number of lines.** Many professionally captioned videos are machine-fitted to a fixed line width, and those breaks carry no meaning, but the extension treated them as intent. A track's breaks are discarded only when most captions contain one, the line lengths are uniform, and the text does not repeat, which leaves lyrics and verse untouched.
+- Firefox: minimum version raised from 109 to 128, which is where `"world": "MAIN"` is supported. Earlier versions installed and did nothing.
+- Debug: a Firefox caption-loading diagnostic, inert unless Debug mode is on.
 
 ### Version 4.0.0
-- **YouTube Shorts support.** Captions now work on Shorts, including scrolling from one Short to the next. Shorts deliver caption data only through the intercepted `timedtext` request (there is no `ytInitialPlayerResponse`), and the timedtext for the next Short arrives before the URL updates, so the interceptor now treats the timedtext response itself as the authoritative signal that a new video is loading and adopts it. The visible Shorts player is `#shorts-player` (the `#movie_player` element is 0x0), so the overlay now mounts on the `.html5-video-player` ancestor of the `<video>` element.
-- **Caption sizing rebuilt as a simple lookup.** The old stack of ratios, per-size scales, floors, and a separate width calculation is gone. Font size is now a flat lookup of 3 player-width buckets (small <700px, medium 700-1250px, large >=1250px) by 3 font settings, and the caption box width is just the font size times a fixed em count, capped to fit the player. Each of the nine cells is independently tunable with no cross-coupling.
-- **Shorts positioning.** Top and bottom positions are now edge-anchored: a 1-, 2-, or 3-line caption shares the same outer edge and grows inward, so multi-line captions never extend past the video edge, under the subscribe/action buttons, or above the top. Upper and lower positions are mirror-symmetric about the video's center, the middle is true center, and the top three positions are lifted by a configurable amount. Edge positions use the small font as a fixed width/height reference so they sit in the same place regardless of the selected font size.
-- **Shorts width.** The caption box is narrowed and uses the small font as a fixed width basis for every size, so a full line always clears the fixed right-side action buttons (larger fonts wrap to more lines rather than widening the box).
-- **Normal-video width.** Large font keeps its size but uses the medium font's box width (one character wider than medium), and medium/large boxes are trimmed a few characters.
-- Performance: fast window resizing no longer thrashes the main thread. The `ResizeObserver` now reads the new size from `contentRect` (no forced reflow), drops no-op notifications, and trailing-debounces the reflow-heavy layout work so it runs once after the size settles instead of on every notification. This also makes it loop-safe.
-- Settings stay in sync across open tabs and between Shorts and normal videos via a `storage` event listener.
-- Popup: tighter spacing around the donate / debug-mode row.
+- **YouTube Shorts support**, including scrolling from one Short to the next. The timedtext response is treated as the signal that a new video is loading, since it arrives before the URL updates, and the overlay mounts on the visible `#shorts-player`.
+- **Caption sizing rebuilt as a lookup**: three player-width buckets by three font settings, with the box width a fixed em count of the font size.
+- Shorts positioning: top and bottom are edge-anchored so multi-line captions grow inward, and upper and lower are mirror-symmetric about the centre.
+- Shorts width narrowed so a full line clears the action buttons.
+- Normal video: large font keeps its size but uses the medium box width.
+- Performance: fast window resizing no longer thrashes the main thread; the layout work runs once after the size settles.
+- Settings stay in sync across open tabs.
+- Popup: tighter spacing around the donate row.
 
 ### Version 3.2.7
-- Fix: manually written captions now respect user line count, font, and all-caps settings.
-
-  **Background:** YouTube delivers two distinct caption formats. Auto-generated captions give each word its own event with a precise timestamp (`tOffsetMs`), and insert `\n`-only events as separators between word groups. Manually written captions give each full sentence as a single segment with one start/end time, no per-word offsets, no `\n`-only separator events, and no `wWinId` property on events. The extension detects which format is in use by checking for those three signals.
-
-  **The bug:** Because manually written captions stored the entire sentence as one indivisible entry, the chunk builder could never split it. Every caption fell back to `forced_single_word` mode and ignored `targetLines` entirely. Switching fonts or enabling all-caps would change how many screen lines the sentence occupied, but the setting had no effect.
-
-  **The fix:** In `extractWords`, manually written caption segments are now split at `\n` characters (which the creator placed as intentional line breaks), then each resulting sub-line is split into individual words with timing distributed proportionally across the sub-line's share of the event duration. Each word becomes its own entry. Sub-line boundaries are enforced as hard chunk breaks via a synthetic per-sub-line event index, so the creator's `\n` splits are always respected. Within a sub-line, the chunk builder can reflow freely - if the user's chosen font or all-caps setting makes a sub-line too wide for `targetLines`, it splits at word boundaries rather than overflowing.
+- **Fix: manually written captions now respect the line count, font and all-caps settings.** A manual caption stored a whole sentence as one indivisible entry, so it could never be split and every caption fell back to single-word mode. Segments are now split at the creator's `
+`, then into words with the timing shared across the sub-line. Sub-line boundaries stay hard breaks; within one, captions reflow freely.
 
 ### Version 3.2.2
 - Firefox: lowered minimum required version from 142 to 109 (the first Firefox with MV3 support), allowing installation on Firefox ESR 128 and other older stable releases
@@ -96,7 +84,7 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - Note: Average Sans has no bold variant; regular only.
 
 ### Version 3.2.0
-- Performance: changing font, size, or line count triggers a full caption rebuild. To verify each caption fits within the line limit, its text is written to a hidden DOM element and the browser measures it, which forces a full page layout recalculation. Previously this was done per-caption sequentially, meaning hundreds of recalculations. Now all captions are written to the DOM first, then all are measured in one pass, one recalculation total, roughly 10x faster on long videos.
+- Performance: a font, size or line count change rebuilds every caption, and each is measured in the DOM. All captions are now written first and measured in one pass, one layout recalculation instead of hundreds, roughly 10x faster on long videos.
 - Fix: changing font no longer causes a brief flash of an extra caption line before the layout recalculates
 - Fix: caption trimming after a line overflow now handles being off by more than one word, and no longer crashes on single-word captions
 

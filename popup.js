@@ -37,9 +37,10 @@ function normalizeSettings(settings) {
   const textSize = ['small', 'medium', 'large', 'xlarge', 'xxlarge'].includes(settings?.textSize)
     ? settings.textSize
     : DEFAULT_SETTINGS.textSize;
-  const targetLines = [1, 2, 3, 4, 5].includes(Number(settings?.targetLines))
+  // Four and five lines are gone, so a stored 4 or 5 lands on three rather than snapping back to the default.
+  const targetLines = [1, 2, 3].includes(Number(settings?.targetLines))
     ? Number(settings.targetLines)
-    : DEFAULT_SETTINGS.targetLines;
+    : (Number(settings?.targetLines) >= 4 ? 3 : DEFAULT_SETTINGS.targetLines);
   const textColor = ['white', 'yellow', 'green', 'cyan'].includes(settings?.textColor)
     ? settings.textColor
     : DEFAULT_SETTINGS.textColor;
@@ -54,7 +55,7 @@ function normalizeSettings(settings) {
   const background = [0, 25, 50, 75, 100].includes(rawBackground)
     ? rawBackground
     : DEFAULT_SETTINGS.background;
-  const captionWidth = ['auto', 'half', 'twothirds', 'threequarters'].includes(settings?.captionWidth)
+  const captionWidth = ['auto', 'third', 'half', 'twothirds', 'threequarters'].includes(settings?.captionWidth)
     ? settings.captionWidth
     : DEFAULT_SETTINGS.captionWidth;
   const font = ['atkinson', 'cascadia', 'noto', 'average', 'roboto', 'bona'].includes(settings?.font)

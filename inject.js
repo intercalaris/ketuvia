@@ -54,11 +54,12 @@
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
   // The two TV sizes obey the same line length as the rest. Measuring the box in em keeps a line near 38 characters however large the screen gets, which is where broadcast subtitles sit.
   const BIG_SIZES = new Set(['xlarge', 'xxlarge']);
+  // The muted broadcast colours, matching the popup swatches exactly so the preview shows what the captions will look like. The pure primaries they replace were tiring to read for long stretches.
   const TEXT_COLORS = {
-    white: '#ffffff',
-    yellow: '#ffff00',
-    green: '#00ff00',
-    cyan: '#00ffff',
+    white: '#d9d7cb',
+    yellow: '#c9b64a',
+    green: '#71a763',
+    cyan: '#5da3a6',
   };
   const TEXT_OPACITIES = [100, 75, 50];
   const DEFAULT_SETTINGS = {
@@ -78,7 +79,7 @@
   const BACKGROUND_LEVELS = [0, 25, 50, 75, 100];
   const LEGACY_BACKGROUND = { light: 25, medium: 50, dark: 75 };
   // The user's choice of caption box width. auto keeps the width that follows the font size, which holds a line near 38 characters; the fractions trade rows for longer lines.
-  const CAPTION_WIDTHS = { auto: 0, half: 0.5, twothirds: 2 / 3, threequarters: 0.75 };
+  const CAPTION_WIDTHS = { auto: 0, third: 1 / 3, half: 0.5, twothirds: 2 / 3, threequarters: 0.75 };
   const FONT_FAMILIES = {
     atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
     cascadia: '"Cascadia Code", ui-monospace, monospace',
@@ -150,9 +151,10 @@
     const textBold = Boolean(settings?.textBold);
 
     return {
-      targetLines: [1, 2, 3, 4, 5].includes(targetLines)
+      // Every subtitle guideline caps at three lines, so four and five are gone. Someone who stored them lands on three rather than snapping back to the default.
+      targetLines: [1, 2, 3].includes(targetLines)
         ? targetLines
-        : DEFAULT_SETTINGS.targetLines,
+        : (targetLines >= 4 ? 3 : DEFAULT_SETTINGS.targetLines),
       textColor: Object.hasOwn(TEXT_COLORS, textColor)
         ? textColor
         : DEFAULT_SETTINGS.textColor,
@@ -893,7 +895,8 @@
     node.style.setProperty(
       '--rechunk-text-shadow',
       STATE.settings.textOutline
-        ? '-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000'
+        ? '-1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000, '
+          + '0 -1.5px 0 #000, 0 1.5px 0 #000, -1.5px 0 0 #000, 1.5px 0 0 #000, 0 0 4px #000'
         : '0 1px 2px rgba(0, 0, 0, 0.9)'
     );
     node.style.setProperty(
@@ -2055,7 +2058,8 @@ function lineBreaksLookMechanical(textEvents, cfg) {
                 text: segWords[wi],
                 eventIndex,
                 sourceKind: eventInfo.sourceKind,
-                preserveEventBoundary: true,
+                // Where YouTube ended a segment is not where the creator ended a line, so it is no reason to end a caption. Forcing a break here stops captions merging, which is the whole point of re-chunking.
+                preserveEventBoundary: false,
               });
               lastStart = wordStart;
             }
@@ -2228,7 +2232,8 @@ async function chunkWords(words, cfg, requestId) {
       fromCreatorLine: meta.reason === 'manual_caption_event_boundary',
       text: displayText,
     });
-    chunkTrace.push({ reason: meta.reason, lines: meta.layout?.lineCount ?? null, text: displayText });
+    chunkTrace.push({ reason: meta.reason, lines: meta.layout?.lineCount ?? null,
+                      startMs, text: displayText });
     if (shouldDebug) {
       debugChunks.push({
         idx: chunks.length - 1,
