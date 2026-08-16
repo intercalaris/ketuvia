@@ -29,6 +29,7 @@ check that fails on the broken version and passes on the fixed one.
 | Captions used more lines than chosen | A whole transcript line arrived as one unit the chunker could not wrap | `ketcheck fit`, judged over every caption built, not the few that happen to play |
 | Captions stopped merging across segments | A forced break at every segment boundary | `ketcheck lines`, which reports what ends each caption |
 | Caption text went missing | Interpolated word times collided and were dropped as out of order | `ketcheck text`, transcript word count against caption word count |
+| Captions blinked out and settings changes vanished | A missing subtitles button was read as "captions are off" | `ketcheck ccbutton`, which removes the button, then checks both that captions survive and that a real off still hides them |
 | Bold reused captions measured at the regular weight | Weight was missing from the rebuild check and from the font wait | `ketcheck flows`, which runs bold as one of its configurations |
 
 Two testing lessons are baked in as well. The storage stub reads its value when the read is serviced
@@ -37,6 +38,9 @@ the panel stub is built from `popup.html`, because a hand-written stub silently 
 position buttons and reported success anyway.
 
 ## Shipped Changes
+
+### Version 4.3.4
+- **Fix: captions blinked out and settings changes were thrown away.** Both showing a caption and applying a settings change were gated on finding YouTube's subtitles button in the page, and a missing button counted as "captions are off". YouTube removes its controls for a moment whenever it re-renders them, so during that moment every poll wiped the caption and any setting chosen at that instant was discarded without ever rebuilding. That reads as the captions flashing, the chosen option not taking, and a page refresh fixing it. Not being able to tell is now treated as unknown rather than off: only a definite off hides anything. Turning captions off still hides them, and turning them back on still restores them.
 
 ### Version 4.3.3
 - **Fix: the settings panel could undo a click you had just made.** The panel reads storage several times as it opens, and an old copy of that routine was still in the file. Because a later function declaration replaces an earlier one, that old copy was the one running, and when its read finished it repainted the panel with the values from before your click. Clicking during those first moments therefore looked like the setting flicking back on its own. The stale copy is gone, and the panel now only ever paints from the settings it holds in memory.

@@ -513,6 +513,7 @@
 
   window.__ketuviaEnabled = STATE.enabled;
 
+  // true on, false off, null when it cannot be told. YouTube removes its controls for a moment when it re-renders them, and reading that as "off" wipes the captions and discards any settings change made at that instant.
   function areNativeCaptionsEnabled() {
     if (location.pathname.startsWith('/shorts/')) return true;
 
@@ -521,7 +522,7 @@
       player?.querySelector('.ytp-subtitles-button') ||
       document.querySelector('.ytp-subtitles-button');
 
-    if (!button) return false;
+    if (!button) return null;
 
     const ariaPressed = button.getAttribute('aria-pressed');
     if (ariaPressed === 'true') return true;
@@ -600,7 +601,8 @@
       // Width feeds the wrap simulation, so captions must be rebuilt for it or every measurement is for the old box.
       previousSettings.captionWidth !== STATE.settings.captionWidth;
 
-    if (!STATE.enabled || !areNativeCaptionsEnabled()) {
+    // Only a definite "captions are off" hides anything. Not being able to tell must not throw the change away.
+    if (!STATE.enabled || areNativeCaptionsEnabled() === false) {
       clearKetuviaOverlay();
       return { ...STATE.settings };
     }
@@ -2456,7 +2458,7 @@ async function chunkWords(words, cfg, requestId) {
 
   function renderCurrentCaption(force = false) {
     if (!STATE.overlay || !STATE.enabled) return;
-    if (!areNativeCaptionsEnabled()) {
+    if (areNativeCaptionsEnabled() === false) {
       clearKetuviaOverlay();
       return;
     }

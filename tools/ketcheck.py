@@ -19,6 +19,7 @@ USAGE = """ketcheck.py <command> [args]
   lines [video] [n]  do captions use the line count asked for, and what ends them early
   width [px...]      what share of the player the Auto box takes, per size
   afterupdate [vid]  does an already-open tab still obey the panel after the extension updates
+  ccbutton [video]   what happens when YouTube's subtitles button is momentarily absent
   latency [video]    how long a change takes to reach the screen, and what shows meanwhile
   multitab [video]   two tabs open, change settings fast, watch for a value coming back
   panel              click every control in the real settings panel and check each one sticks
@@ -371,6 +372,76 @@ JOHAN = {'targetLines': 2, 'textSize': 'xlarge', 'font': 'noto', 'position': 'ce
          'captionWidth': 'half', 'textOutline': False, 'textBold': False}
 
 
+def cmd_ccbutton(args):
+    """Captions and settings both hang off YouTube's subtitles button. What if it is not there?"""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    pairs = word_times(vid)
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+    H.apply_settings(JOHAN)
+    H.send('video', {'match': match, 'seek': round(pairs[0][1]) + 3 if pairs else 5,
+                     'play': True, 'mute': True})
+    time.sleep(3)
+
+    def overlay():
+        snap = H.send('snapshot', {'match': match, 'selector': '#rechunk-overlay'})
+        page = (snap or {}).get('page') or {}
+        return (page.get('text') or '').strip(), (page.get('dataset') or {}).get('empty')
+
+    text_before, empty_before = overlay()
+    size_before = rendered_font(match)
+    print(f'  with the button: empty={empty_before}, size={size_before}, '
+          f'caption {text_before[:34]!r}', flush=True)
+    if empty_before == '1':
+        raise H.SetupError('no caption on screen to begin with')
+
+    gone = H.send('dom.remove', {'match': match, 'selector': '.ytp-subtitles-button'})
+    print(f'  removing the button: {gone}', flush=True)
+    if not (gone or {}).get('ok'):
+        raise H.SetupError(f'could not remove the button, nothing was tested: {gone}')
+    time.sleep(1.0)
+
+    text_gone, empty_gone = overlay()
+    print(f'  without the button: empty={empty_gone}, caption {text_gone[:34]!r}', flush=True)
+
+    # A settings change while the button is away: does it survive?
+    H.send('storage.set', {'ketuviaSettings': dict(JOHAN, textSize='small')})
+    time.sleep(2)
+    size_while_gone = rendered_font(match)
+
+    back = H.send('dom.restore', {'match': match})
+    print(f'  restoring: {back}', flush=True)
+    if not (back or {}).get('restored'):
+        raise H.SetupError(f'the button was not put back: {back}')
+    time.sleep(2)
+    text_after, empty_after = overlay()
+    size_after = rendered_font(match)
+    print(f'  after restoring: empty={empty_after}, size={size_after}, '
+          f'caption {text_after[:34]!r}', flush=True)
+
+    # The other half: a real "off" must still hide them, or this fix would break turning CC off.
+    H.send('video', {'match': match, 'captions': False})
+    time.sleep(2)
+    text_off, empty_off = overlay()
+    print(f'  captions turned off: empty={empty_off}, caption {text_off[:30]!r}', flush=True)
+    H.send('video', {'match': match, 'captions': True})
+    time.sleep(2)
+    _, empty_on = overlay()
+    print(f'  captions turned back on: empty={empty_on}', flush=True)
+
+    bad = []
+    if empty_off != '1':
+        bad.append('turning captions off no longer hides the overlay')
+    if empty_on == '1':
+        bad.append('captions did not come back after turning them on again')
+    if empty_gone == '1':
+        bad.append('captions were wiped while the button was momentarily absent')
+    if size_after == size_before:
+        bad.append(f'the settings change made while the button was away never applied '
+                   f'(still {size_after})')
+    return bad, 'a missing subtitles button does not disturb captions or settings', '; '.join(bad)
+
+
 def cmd_latency(args):
     """How long a change takes to show, and whether anything wrong shows on the way."""
     vid = args[0] if args else DEFAULT_VIDEO
@@ -502,7 +573,7 @@ def cmd_popup(args):
 
 
 COMMANDS = {'flows': cmd_flows, 'fit': cmd_fit, 'text': cmd_text, 'lines': cmd_lines,
-            'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
+            'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'ccbutton': cmd_ccbutton, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
             'popup': cmd_popup}
 
 if __name__ == '__main__':
