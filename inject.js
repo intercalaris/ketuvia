@@ -54,9 +54,9 @@
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
   // The two TV sizes obey the same line length as the rest. Measuring the box in em keeps a line near 38 characters however large the screen gets, which is where broadcast subtitles sit.
   const BIG_SIZES = new Set(['xlarge', 'xxlarge']);
-  // The muted broadcast colours, matching the popup swatches exactly so the preview shows what the captions will look like. The pure primaries they replace were tiring to read for long stretches.
+  // Matches the popup swatches so the preview shows what the captions will look like. White stays white; only the primaries are softened, since those were the tiring ones.
   const TEXT_COLORS = {
-    white: '#d9d7cb',
+    white: '#ffffff',
     yellow: '#c9b64a',
     green: '#71a763',
     cyan: '#5da3a6',

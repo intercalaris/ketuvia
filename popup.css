@@ -239,7 +239,7 @@ main {
 }
 
 /* Muted stand-ins for the pure caption colours, so the swatches sit in the palette instead of glowing against it. The captions themselves stay pure. */
-.segments.swatches button[data-value="white"] { background: #d9d7cb; }
+.segments.swatches button[data-value="white"] { background: #ffffff; }
 .segments.swatches button[data-value="yellow"] { background: #c9b64a; }
 .segments.swatches button[data-value="green"] { background: #71a763; }
 .segments.swatches button[data-value="cyan"] { background: #5da3a6; }
