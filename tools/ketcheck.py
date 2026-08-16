@@ -19,6 +19,7 @@ USAGE = """ketcheck.py <command> [args]
   lines [video] [n]  do captions use the line count asked for, and what ends them early
   width [px...]      what share of the player the Auto box takes, per size
   afterupdate [vid]  does an already-open tab still obey the panel after the extension updates
+  staleprefs [video] can leftover page settings overwrite a choice made after reinstalling
   ccbutton [video]   what happens when YouTube's subtitles button is momentarily absent
   latency [video]    how long a change takes to reach the screen, and what shows meanwhile
   multitab [video]   two tabs open, change settings fast, watch for a value coming back
@@ -372,6 +373,40 @@ JOHAN = {'targetLines': 2, 'textSize': 'xlarge', 'font': 'noto', 'position': 'ce
          'captionWidth': 'half', 'textOutline': False, 'textBold': False}
 
 
+def cmd_staleprefs(args):
+    """Uninstalling clears extension storage but not the page's localStorage. Can the old copy win?"""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+
+    old = dict(DEFAULTS, textSize='xxlarge', textColor='green', targetLines=1)
+    new = dict(DEFAULTS, textSize='small', textColor='cyan', targetLines=3)
+
+    H.send('localStorage.set', {'match': match, 'key': 'ketuviaSettings',
+                                'value': json.dumps(old)})
+    # What a fresh install looks like: extension storage empty, the page's copy left behind.
+    H.send('storage.remove', {'keys': ['ketuviaSettings']})
+    time.sleep(0.5)
+
+    # The user reloads the video and picks something new at about the same moment.
+    H.send('tabs.reload', {'match': match})
+    time.sleep(0.35)
+    H.send('storage.set', {'ketuviaSettings': new})
+
+    for _ in range(6):
+        time.sleep(2)
+        got = stored_settings()
+        if got:
+            break
+    print(f"  chose {new['textSize']}/{new['textColor']}, "
+          f"storage now holds {got.get('textSize')}/{got.get('textColor')}", flush=True)
+
+    bad = []
+    if got.get('textSize') == old['textSize'] and got.get('textColor') == old['textColor']:
+        bad.append('the leftover page copy overwrote the choice made after reinstalling')
+    return bad, 'a leftover page copy cannot overwrite a new choice', '; '.join(bad)
+
+
 def cmd_ccbutton(args):
     """Captions and settings both hang off YouTube's subtitles button. What if it is not there?"""
     vid = args[0] if args else DEFAULT_VIDEO
@@ -573,7 +608,7 @@ def cmd_popup(args):
 
 
 COMMANDS = {'flows': cmd_flows, 'fit': cmd_fit, 'text': cmd_text, 'lines': cmd_lines,
-            'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'ccbutton': cmd_ccbutton, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
+            'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'ccbutton': cmd_ccbutton, 'staleprefs': cmd_staleprefs, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
             'popup': cmd_popup}
 
 if __name__ == '__main__':

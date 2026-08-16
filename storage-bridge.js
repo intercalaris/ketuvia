@@ -42,7 +42,18 @@
     let previous = null;
     try { previous = JSON.parse(window.localStorage.getItem(SETTINGS_STORAGE_KEY) || 'null'); }
     catch {}
-    if (previous) chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: previous });
+    if (!previous) return;
+
+    // Uninstalling clears extension storage but not the page's copy, so this write is armed with old
+    // settings right when someone is choosing new ones. Look again and never overwrite what appeared.
+    chrome.storage.local.get({ [SETTINGS_STORAGE_KEY]: null }, latest => {
+      if (chrome.runtime.lastError) return;
+      if (latest[SETTINGS_STORAGE_KEY]) {
+        syncSettings(latest[SETTINGS_STORAGE_KEY]);
+        return;
+      }
+      chrome.storage.local.set({ [SETTINGS_STORAGE_KEY]: previous });
+    });
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {

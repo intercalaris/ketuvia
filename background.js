@@ -19,9 +19,28 @@ function welcomeDecision(currentMajor, storedMajor, legacySeen) {
 
 if (typeof module !== 'undefined') module.exports = { majorOf, welcomeDecision };
 
+// Only the bridge goes back in. inject.js runs in the page's own world and survives an update, so a second copy of it would fight the first.
+async function reconnectOpenTabs() {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['*://www.youtube.com/*', '*://m.youtube.com/*'] });
+    for (const tab of tabs) {
+      if (tab.id == null) continue;
+      try {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['storage-bridge.js'] });
+      } catch (e) { void e; }
+    }
+    return tabs.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
 if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onInstalled) {
   chrome.runtime.onInstalled.addListener(async ({ reason }) => {
     if (reason !== 'install' && reason !== 'update') return;
+
+    // An open tab keeps a dead bridge after an update, so settings stop reaching it until a reload.
+    await reconnectOpenTabs();
 
     const currentMajor = majorOf(chrome.runtime.getManifest().version);
     try {

@@ -30,6 +30,8 @@ check that fails on the broken version and passes on the fixed one.
 | Captions stopped merging across segments | A forced break at every segment boundary | `ketcheck lines`, which reports what ends each caption |
 | Caption text went missing | Interpolated word times collided and were dropped as out of order | `ketcheck text`, transcript word count against caption word count |
 | Captions blinked out and settings changes vanished | A missing subtitles button was read as "captions are off" | `ketcheck ccbutton`, which removes the button, then checks both that captions survive and that a real off still hides them |
+| An open tab ignored the panel after an update | The settings messenger dies with the old extension and is not replaced | `ketcheck afterupdate`, which restarts the extension and checks a never-reloaded tab still obeys |
+| A leftover page copy overwrote a fresh choice | The copy was written back without re-checking | `ketcheck staleprefs`, which arms the old copy and then chooses something new |
 | Bold reused captions measured at the regular weight | Weight was missing from the rebuild check and from the font wait | `ketcheck flows`, which runs bold as one of its configurations |
 
 Two testing lessons are baked in as well. The storage stub reads its value when the read is serviced
@@ -38,6 +40,10 @@ the panel stub is built from `popup.html`, because a hand-written stub silently 
 position buttons and reported success anyway.
 
 ## Shipped Changes
+
+### Version 4.3.5
+- **Fix: after installing or updating, an already-open YouTube tab stopped obeying the settings panel.** The part of the extension that carries settings into the page dies when the extension is replaced, so the panel kept saving while nothing in that tab was listening, and only reloading the page revived it. It is now put back into open tabs on install and update. The part that draws the captions runs in the page itself and survives, so only the messenger is replaced and nothing is doubled.
+- **Fix: settings left behind in the page could overwrite a fresh choice.** Removing the extension clears its storage but not the copy kept in the page, which exists so an upgrade does not reset anyone's preferences. That copy was written back without looking again, so a choice made in the same moment could be overwritten by the old one. It now re-checks first and never writes over anything that has appeared since.
 
 ### Version 4.3.4
 - **Fix: captions blinked out and settings changes were thrown away.** Both showing a caption and applying a settings change were gated on finding YouTube's subtitles button in the page, and a missing button counted as "captions are off". YouTube removes its controls for a moment whenever it re-renders them, so during that moment every poll wiped the caption and any setting chosen at that instant was discarded without ever rebuilding. That reads as the captions flashing, the chosen option not taking, and a page refresh fixing it. Not being able to tell is now treated as unknown rather than off: only a definite off hides anything. Turning captions off still hides them, and turning them back on still restores them.
