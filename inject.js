@@ -54,12 +54,12 @@
   const SETTINGS_STORAGE_KEY  = 'ketuviaSettings';
   // The two TV sizes obey the same line length as the rest. Measuring the box in em keeps a line near 38 characters however large the screen gets, which is where broadcast subtitles sit.
   const BIG_SIZES = new Set(['xlarge', 'xxlarge']);
-  // Matches the popup swatches so the preview shows what the captions will look like. White stays white; only the primaries are softened, since those were the tiring ones.
+  // The four broadcast caption colours at full strength. Text opacity is the control for softening them, so the colours themselves stay legible against bright video.
   const TEXT_COLORS = {
     white: '#ffffff',
-    yellow: '#c9b64a',
-    green: '#71a763',
-    cyan: '#5da3a6',
+    yellow: '#ffff00',
+    green: '#00ff00',
+    cyan: '#00ffff',
   };
   const TEXT_OPACITIES = [100, 75, 50];
   const DEFAULT_SETTINGS = {

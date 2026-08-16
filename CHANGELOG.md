@@ -19,6 +19,10 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 
 ## Shipped Changes
 
+### Version 4.3.3
+- **Fix: the settings panel could undo a click you had just made.** The panel reads storage several times as it opens, and an old copy of that routine was still in the file. Because a later function declaration replaces an earlier one, that old copy was the one running, and when its read finished it repainted the panel with the values from before your click. Clicking during those first moments therefore looked like the setting flicking back on its own. The stale copy is gone, and the panel now only ever paints from the settings it holds in memory.
+- **Caption colours are back to full strength.** The softened yellow, green and cyan read as washed out on video; text opacity is the control for toning them down.
+
 ### Version 4.3.2
 - **Fix: captions were breaking at YouTube's own segment boundaries**, so words that belonged in one caption were shown as two and the chosen line count often went unused. Long segments are still split so captions fit the box; line breaks the creator authored, such as song lyrics, are still kept.
 - **Lines are now 1 to 3.** Subtitle guidelines cap a caption at two lines, three by exception, so 4 and 5 have been removed. A stored 4 or 5 becomes 3.

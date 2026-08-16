@@ -242,11 +242,11 @@ main {
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55);
 }
 
-/* Muted stand-ins for the pure caption colours, so the swatches sit in the palette instead of glowing against it. The captions themselves stay pure. */
+/* The swatch is the colour the captions will be, so the panel previews the real thing. */
 .segments.swatches button[data-value="white"] { background: #ffffff; }
-.segments.swatches button[data-value="yellow"] { background: #c9b64a; }
-.segments.swatches button[data-value="green"] { background: #71a763; }
-.segments.swatches button[data-value="cyan"] { background: #5da3a6; }
+.segments.swatches button[data-value="yellow"] { background: #ffff00; }
+.segments.swatches button[data-value="green"] { background: #00ff00; }
+.segments.swatches button[data-value="cyan"] { background: #00ffff; }
 
 .segments.swatches button[data-active="1"] {
   outline: 2px solid #c8c6bc;

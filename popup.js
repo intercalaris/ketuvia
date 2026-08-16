@@ -153,15 +153,6 @@ function renderEnabled(enabled) {
   ketuviaOff.dataset.active = enabled ? '0' : '1';
 }
 
-async function syncFromStorage() {
-  renderEnabled(await getGlobalEnabled());
-
-  const items = await debugStorage.get({ [DEBUG_STORAGE_KEY]: false });
-  toggle.checked = items[DEBUG_STORAGE_KEY] === true;
-
-  renderSettings(await loadSettings());
-}
-
 document.querySelectorAll('.segments:not(.ketuvia-segments) button').forEach(button => {
   button.addEventListener('click', () => changeSettings({
     [button.closest('.segments').dataset.setting]: button.dataset.value,
