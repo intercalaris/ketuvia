@@ -78,11 +78,9 @@ jobs:
             exit 0
           fi
 
-          if [ -n "$previous_version" ] && [ "$previous_version" = "$current_version" ]; then
-            echo "Release keyword found, but manifest version is still $current_version."
-            echo "Bump manifest.json before publishing to a store."
-            exit 1
-          fi
+          # No version-change check here. The stores reject a duplicate version
+          # themselves, and requiring a bump blocks retrying a failed upload,
+          # such as replacing a Chrome submission that was stuck in review.
 
           echo "should_publish=true" >> "$GITHUB_OUTPUT"
           echo "Publishing version $current_version. Chrome=$publish_chrome Firefox=$publish_firefox ReplaceChrome=$replace_chrome"
