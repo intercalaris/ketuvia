@@ -79,7 +79,7 @@
   const BACKGROUND_LEVELS = [0, 25, 50, 75, 100];
   const LEGACY_BACKGROUND = { light: 25, medium: 50, dark: 75 };
   // The user's choice of caption box width. auto keeps the width that follows the font size, which holds a line near 38 characters; the fractions trade rows for longer lines.
-  const CAPTION_WIDTHS = { auto: 0, third: 1 / 3, half: 0.5, twothirds: 2 / 3, threequarters: 0.75 };
+  const CAPTION_WIDTHS = { auto: 0, third: 1 / 3, half: 0.5, twothirds: 2 / 3 };
   const FONT_FAMILIES = {
     atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
     cascadia: '"Cascadia Code", ui-monospace, monospace',
@@ -141,7 +141,9 @@
     const background = Object.hasOwn(LEGACY_BACKGROUND, String(rawBackground))
       ? LEGACY_BACKGROUND[String(rawBackground)]
       : Number(rawBackground);
-    const captionWidth = String(settings?.captionWidth || DEFAULT_SETTINGS.captionWidth);
+    const storedWidth = String(settings?.captionWidth || DEFAULT_SETTINGS.captionWidth);
+    // 3/4 was too wide to read at normal text sizes, so anyone who chose it lands on the next widest.
+    const captionWidth = storedWidth === 'threequarters' ? 'twothirds' : storedWidth;
     const position = String(settings?.position || DEFAULT_SETTINGS.position);
     const font = String(settings?.font || DEFAULT_SETTINGS.font);
     const textColor = String(settings?.textColor || DEFAULT_SETTINGS.textColor);
@@ -746,10 +748,10 @@
     const maxAvailableWidth = Math.max(0, playerWidth - CFG.playerPaddingPx);
     // The chosen fraction of the player wins over the em rule, except on Shorts, whose narrow box exists to clear the action buttons.
     const widthFraction = CAPTION_WIDTHS[settings.captionWidth] || 0;
-    // Auto never exceeds the largest manual option, so picking 3/4 can never make the box narrower. The cap only touches xxlarge on small players, costing about one character per line there.
+    // Auto never exceeds the largest manual option, so picking 2/3 can never make the box narrower. The cap only touches the two TV sizes on small players.
     const textWidthPx = !isShorts && widthFraction > 0
       ? Math.min(Math.round(playerWidth * widthFraction), maxAvailableWidth)
-      : Math.min(Math.round(widthFontPx * widthEm), isShorts ? maxAvailableWidth : Math.round(playerWidth * 0.75), maxAvailableWidth);
+      : Math.min(Math.round(widthFontPx * widthEm), isShorts ? maxAvailableWidth : Math.round(playerWidth * (2 / 3)), maxAvailableWidth);
 
     return {
       textWidthPx,

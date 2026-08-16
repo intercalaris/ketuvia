@@ -188,11 +188,21 @@ def cmd_width(args):
     if args and args[0] == 'live':
         vid = args[1] if len(args) > 1 else DEFAULT_VIDEO
         H.open_video(f'https://www.youtube.com/watch?v={vid}')
+        player = H.send('rect', {'match': f'*{vid}*', 'selector': '.html5-video-player'}) or {}
+        picture = H.send('rect', {'match': f'*{vid}*', 'selector': 'video'}) or {}
+        print(f"  player {player.get('width')} px, picture {picture.get('width')} px", flush=True)
+        widths = {}
         for choice in ('auto', 'third', 'half', 'twothirds', 'threequarters'):
             H.apply_settings(dict(DEFAULTS, captionWidth=choice), settle=2)
             r = H.send('measure.compare', {'match': f'*{vid}*', 'text': 'measuring the box'})
-            width = ((r or {}).get('overlay') or {}).get('width')
-            print(f'  {choice:<15}{width} px', flush=True)
+            widths[choice] = ((r or {}).get('overlay') or {}).get('width') or 0
+        auto = widths.get('auto') or 1
+        print(f"  {'option':<15}{'box':>6}{'of player':>11}{'of picture':>12}{'chars':>7}", flush=True)
+        for choice, box in widths.items():
+            of_player = box / (player.get('width') or 1)
+            of_pic = box / (picture.get('width') or 1)
+            print(f'  {choice:<15}{box:>6}{of_player:>10.0%}{of_pic:>12.0%}'
+                  f'{round(38 * box / auto):>7}', flush=True)
         return [], 'box widths measured', ''
 
     src = open(os.path.join(HERE, '..', 'inject.js'), encoding='utf-8').read()
@@ -220,7 +230,7 @@ def cmd_width(args):
         elif size in ('medium', 'xlarge', 'xxlarge'):
             em -= reduce_em
         font = rows['medium'][b] if size == 'large' else rows[size][b]
-        return min(round(font * em), round(player * 0.75), max(0, player - padding))
+        return min(round(font * em), round(player * 2 / 3), max(0, player - padding))
 
     players = [int(a) for a in args] or [854, 1280, 1920, 2560, 3840]
     sizes = ['small', 'medium', 'large', 'xlarge', 'xxlarge']

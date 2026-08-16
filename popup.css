@@ -226,8 +226,12 @@ main {
   font-size: 10.5px;
 }
 
+/* Auto is a word among fractions, so a fixed button width leaves its pill with no padding at all. Let each option take the room its label needs. */
 .width-setting .segments button {
   font-size: 10.5px;
+  width: auto;
+  flex: 1 1 auto;
+  padding: 0 4px;
 }
 
 /* Colour swatches read as colour, so the label is the colour itself and the active one gets a ring. */

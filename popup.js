@@ -55,8 +55,10 @@ function normalizeSettings(settings) {
   const background = [0, 25, 50, 75, 100].includes(rawBackground)
     ? rawBackground
     : DEFAULT_SETTINGS.background;
-  const captionWidth = ['auto', 'third', 'half', 'twothirds', 'threequarters'].includes(settings?.captionWidth)
-    ? settings.captionWidth
+  // 3/4 is gone; a stored 3/4 lands on the next widest rather than snapping back to Auto.
+  const storedWidth = settings?.captionWidth === 'threequarters' ? 'twothirds' : settings?.captionWidth;
+  const captionWidth = ['auto', 'third', 'half', 'twothirds'].includes(storedWidth)
+    ? storedWidth
     : DEFAULT_SETTINGS.captionWidth;
   const font = ['atkinson', 'cascadia', 'noto', 'average', 'roboto', 'bona'].includes(settings?.font)
     ? settings.font
