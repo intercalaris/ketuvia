@@ -3,3 +3,4 @@ meta/*
 !meta/Demo.png
 !meta/Demo2.png
 !meta/logo.png
+tools/.preflight.json
