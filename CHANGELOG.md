@@ -17,6 +17,31 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - **Chrome Web Store OAuth refresh token expires every 7 days** because the Google Cloud OAuth consent screen is in Testing mode. Fix: go to the OAuth consent screen in Google Cloud Console and publish the app (switch from Testing to Production). Until then, the `CWS_REFRESH_TOKEN` GitHub secret needs to be manually rotated every week.
   - Fixed 2026-05-16: switched OAuth consent screen to Production mode. Token no longer expires.
 
+## Version 4.3.9
+
+- Captions no longer load invisibly above the player. During a slow page load, YouTube parks the
+  video element a full screen above the player and slides it into place without resizing it; a
+  caption position computed at that moment was never recomputed, so the captions played off-screen
+  and looked like they had failed to load. Resizing the window forced a recompute, which is why
+  maximizing "fixed" it. The box now refuses to anchor to a video that is not inside its player,
+  sits at the default bottom position until the video settles, anchors to the player's own video
+  rather than the first video element on the page, and keeps recomputing across the watch-to-Shorts
+  boundary.
+- Captions now load when YouTube's CC button switches itself on a few seconds into the video. The
+  extension used to check the button once, early, and give up for good if it still read off. It now
+  watches the button and starts the moment it turns on, or draws immediately if the caption file
+  already arrived in the meantime. Captions turned off by hand still mean silence.
+- Shorts recover when YouTube's first caption reply is empty or slow. The recovery reload was sent
+  to the watch page's player, an empty element on Shorts pages, so it could never take effect.
+- "Failed to load captions" no longer appears while the captions are merely late. The extension gave
+  up after seven seconds; YouTube regularly answers between ten and twenty. It now keeps retrying
+  quietly and reports failure only after forty seconds.
+- If reloads keep coming back empty, the extension toggles the CC button off and on, which makes
+  YouTube fetch the caption file directly, then verifies captions end up on.
+- Hovering a suggested video no longer replaces the captions of the video being watched. A caption
+  file for a different video is ignored unless the page is actually on that video. Scrolling Shorts,
+  where the caption file arrives before the address updates, is unchanged.
+
 ## Keeping Past Faults Out
 
 Each of these ran green while the fault was live, which is why the fault shipped. Every one now has a

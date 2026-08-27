@@ -20,6 +20,11 @@
     navRetryForMs: 8000,
     triggerRetryMs: 900,
     maxTriggerAttempts: 8,
+    // YouTube answers the first request for a subtitle file with nothing, or after ten to twenty seconds. Reloading quickly recovers the first case; the second just needs waiting out.
+    slowRetryMs: 3000,
+    giveUpAfterMs: 40000,
+    maxCaptionsToggles: 2,
+    toggleAfterAttempts: 2,
     // Caption sizing is a flat lookup: pick a player-width bucket, then read the font size for the chosen font. Box width is font x widthEm, capped to the player.
     widthBuckets: { medium: 700, large: 1250, xwide: 1800, ultra: 2600 },   // player-width thresholds (px)
     // Broadcast captions (CEA-708, BBC) are 1/15 of picture height. The two TV sizes aim at that on a fullscreen player, which is why they keep growing with the box.
@@ -484,6 +489,9 @@
     measurerText: null,
     layout:     null,
     resizeObserver: null,
+    resizeObservedPlayer: null,
+    resizeObservedVideo: null,
+    layoutSettleTimerId: null,
     resizeTimerId: null,
     resizeLayoutTimerId: null,
     lastResizeW: -1,
@@ -497,6 +505,9 @@
     navRetryUntil: 0,
     triggerRetryId: null,
     triggerAttempts: 0,
+    firstTriggerAtMs: 0,
+    captionsToggles: 0,
+    captionsWatcher: null,
     timedtextRequestCount: 0,
     timedtextResponseCount: 0,
     lastTimedtextRequest: null,
@@ -529,6 +540,71 @@
     if (ariaPressed === 'false') return false;
 
     return button.classList.contains('ytp-button-active');
+  }
+
+  // The button turns on by itself a few seconds into a video, and can be turned on by hand at any point, so it is watched rather than read at a few chosen moments.
+  function watchCaptionsButton() {
+    if (STATE.captionsWatcher) return;
+    const player = getPlayerElement() || document.body;
+    if (!player) return;
+    STATE.captionsWatcher = new MutationObserver(() => {
+      if (!areNativeCaptionsEnabled()) return;
+      if (!STATE.enabled || STATE.chunks.length) return;
+      captionLoadDebug('captions_button_came_on', { words: STATE.words.length });
+      // Its work is done the moment the button reads on: from here the ordinary paths take over.
+      stopWatchingCaptionsButton();
+      if (STATE.words.length) {
+        rebuildChunksForLayout('captions_came_on');
+        startPolling();
+      } else {
+        triggerCaptionLoad();
+      }
+    });
+    try {
+      STATE.captionsWatcher.observe(player, {
+        subtree: true, attributes: true, attributeFilter: ['aria-pressed', 'title'],
+      });
+    } catch {
+      STATE.captionsWatcher = null;
+    }
+  }
+
+  function stopWatchingCaptionsButton() {
+    if (!STATE.captionsWatcher) return;
+    try { STATE.captionsWatcher.disconnect(); } catch {}
+    STATE.captionsWatcher = null;
+  }
+
+  // Turning YouTube's captions off and on is what a person does when captions never arrive, and it fetches the file at once where the player's own reload command does not.
+  function toggleNativeCaptions() {
+    const player = getPlayerElement();
+    const button =
+      player?.querySelector('.ytp-subtitles-button') ||
+      document.querySelector('.ytp-subtitles-button');
+    if (!button || STATE.captionsToggles >= CFG.maxCaptionsToggles) return false;
+    STATE.captionsToggles += 1;
+    captionLoadDebug('toggling_captions', { toggles: STATE.captionsToggles });
+    try {
+      button.click();
+    } catch {
+      return false;
+    }
+    // Leaving captions off would silence the extension, so this checks and puts them back. A file arriving while they were off is stored and not drawn, so it is built here rather than refetched.
+    const putBack = () => {
+      if (button.getAttribute('aria-pressed') !== 'true') {
+        try { button.click(); } catch {}
+        return;
+      }
+      if (STATE.words.length && !STATE.chunks.length) {
+        captionLoadDebug('building_after_toggle', { words: STATE.words.length });
+        rebuildChunksForLayout('captions_back_on');
+        startPolling();
+      }
+    };
+    setTimeout(putBack, 200);
+    setTimeout(putBack, 1200);
+    setTimeout(putBack, 3000);
+    return true;
   }
 
   function clearKetuviaOverlay() {
@@ -943,12 +1019,29 @@
     }
 
     // Anchor to the video element's real rect, not the player's CSS height which lags during resize. Bottom-half positions anchor to the video bottom so the gap stays proportional.
-    const video = document.querySelector('video');
     const playerEl = getPlayerElement();
+    // The page can hold other video elements: a neighbouring reel, a hover preview, the miniplayer. Anchoring to whichever comes first in the DOM throws the box a full screen off the player.
+    const video = (playerEl && playerEl.querySelector('video')) || document.querySelector('video');
     const vr = video?.getBoundingClientRect();
     const pr = playerEl?.getBoundingClientRect();
     if (vr && pr && vr.height > 0) {
       const videoOffsetInPlayer = vr.top - pr.top;
+      // Mid-load YouTube parks the video a full screen above the player and slides it in without resizing it, and a position computed then is frozen garbage. Until the video actually overlaps the player, use the stylesheet's safe bottom position and measure again shortly.
+      if (videoOffsetInPlayer + vr.height <= 0 || videoOffsetInPlayer >= pr.height) {
+        node.style.top = '';
+        node.style.bottom = '';
+        node.style.left = '50%';
+        node.style.right = 'auto';
+        node.style.transform = 'translateX(-50%)';
+        if (!STATE.layoutSettleTimerId) {
+          STATE.layoutSettleTimerId = setTimeout(() => {
+            STATE.layoutSettleTimerId = null;
+            mountOverlay();
+            renderCurrentCaption(true);
+          }, 400);
+        }
+        return;
+      }
       const isShorts = location.pathname.startsWith('/shorts/');
       if (isShorts) {
         const fontLinePx = (layout.fontSizePx || 0) * (layout.lineHeight || 1.4);
@@ -1048,7 +1141,7 @@
       applyLayout(STATE.measurer, layout);
     }
 
-    if (!STATE.resizeObserver && typeof ResizeObserver === 'function') {
+    if (typeof ResizeObserver === 'function' && !STATE.resizeObserver) {
       STATE.resizeObserver = new ResizeObserver(entries => {
         // The player resizes continuously during a window drag and while a fresh video settles. Read the size from contentRect to drop no-op notifications, then debounce the reflow-heavy layout so it runs once after the size settles.
         const cr = entries[entries.length - 1]?.contentRect;
@@ -1065,7 +1158,19 @@
           scheduleResizeRebuild();
         }, 120);
       });
+    }
+    // Moving between a watch page and Shorts swaps player elements, and an observer left on the old one never fires again, so a wrong position would never be recomputed.
+    if (STATE.resizeObserver && STATE.resizeObservedPlayer !== player) {
+      STATE.resizeObserver.disconnect();
       STATE.resizeObserver.observe(player);
+      STATE.resizeObservedPlayer = player;
+      STATE.resizeObservedVideo = null;
+    }
+    // The position is computed from the video element's rectangle, and on a slow load that element reaches its real size after the last early computation while the player's own box never changes, so the video must be watched as well or a wrong position freezes.
+    const playerVideo = player.querySelector('video');
+    if (STATE.resizeObserver && playerVideo && STATE.resizeObservedVideo !== playerVideo) {
+      STATE.resizeObserver.observe(playerVideo);
+      STATE.resizeObservedVideo = playerVideo;
     }
 
     return player;
@@ -1430,6 +1535,14 @@
       length: text.length,
       atMs: Math.round(performance.now()),
     };
+    // Scrolling Shorts, a file for another video arrives before the address bar catches up, so it is trusted. Anywhere else the address bar is the authority, and a file for a video the page is not on belongs to a preview playing under the pointer.
+    if (vid !== STATE.videoId && !location.pathname.startsWith('/shorts/')) {
+      const onPage = currentVideoId();
+      if (onPage && onPage !== vid) {
+        captionLoadDebug('timedtext_for_another_video', { vid, onPage, was: STATE.videoId });
+        return;
+      }
+    }
     ffLog('timedtext_intercepted', { vid, len: text.length, responseCount: STATE.timedtextResponseCount });
     window.__ketuviaLastTimedtext = {
       videoId: vid,
@@ -1450,7 +1563,7 @@
     });
     log('intercepted timedtext vid=' + vid + ' len=' + text.length);
     if (STATE.videoId && vid !== STATE.videoId) {
-      // Timedtext request is itself the authoritative signal that captions for a new video are loading — the URL update / navigate-finish often races behind it (especially on Shorts scroll). Reset and adopt.
+      // The file has already been checked against the page, so a different video here means the page really has moved to it.
       resetForNewVideo();
       STATE.videoId = vid;
     }
@@ -1602,6 +1715,8 @@
         reason: !STATE.enabled ? 'ketuvia_disabled' : 'native_cc_off',
         storedWordsLength: STATE.words.length,
       });
+      // The words are stored and the button is off, so the watcher is what will draw them when it comes on. Started here too, because the file can arrive before anything else has run.
+      if (STATE.enabled) watchCaptionsButton();
       clearKetuviaOverlay();
       return;
     }
@@ -1675,8 +1790,7 @@
       !STATE.videoId ||
       !STATE.asrLang ||
       !STATE.enabled ||
-      STATE.chunks.length ||
-      !areNativeCaptionsEnabled()
+      STATE.chunks.length
     ) {
       captionLoadDebug('trigger_skipped', {
         hasVideoId: Boolean(STATE.videoId),
@@ -1685,7 +1799,24 @@
       return;
     }
 
-    const player = document.getElementById('movie_player');
+    // YouTube switches its own button on a few seconds in, and watchCaptionsButton picks that up whenever it happens, so there is nothing to do here until it does.
+    if (!areNativeCaptionsEnabled()) {
+      captionLoadDebug('captions_are_off');
+      watchCaptionsButton();
+      return;
+    }
+
+    // The file may already have arrived while the button still read off, in which case the words are sitting here unused and can be drawn at once, with nothing to download again.
+    if (STATE.words.length && !STATE.chunks.length) {
+      captionLoadDebug('drawing_words_already_here', { words: STATE.words.length });
+      clearTriggerRetry();
+      rebuildChunksForLayout('captions_came_on');
+      startPolling();
+      return;
+    }
+
+    // A Shorts page keeps an empty movie_player around, and asking that one about captions returns nothing forever, so the reload below could never run on a Short.
+    const player = getPlayerElement();
     if (!player || typeof player.setOption !== 'function') {
       captionLoadDebug('trigger_waiting_for_player', {
         hasPlayer: Boolean(player),
@@ -1715,6 +1846,9 @@
 
     STATE.triggerAttempts += 1;
     STATE.triggered = true;
+    if (!STATE.firstTriggerAtMs) STATE.firstTriggerAtMs = Math.round(performance.now());
+    // The reload command has had its chances by now, so do what a person does instead.
+    if (STATE.triggerAttempts === CFG.toggleAfterAttempts) toggleNativeCaptions();
     log(
       'triggering caption load attempt=' +
       STATE.triggerAttempts +
@@ -1750,15 +1884,27 @@
     clearTriggerRetry();
     STATE.triggerRetryId = setTimeout(() => {
       STATE.triggerRetryId = null;
-      if (
-        STATE.chunks.length ||
-        !STATE.enabled ||
-        !STATE.videoId ||
-        !areNativeCaptionsEnabled()
-      ) return;
+      if (STATE.chunks.length || !STATE.enabled || !STATE.videoId) return;
+      // The button can read off here for a moment, mid-toggle. Dying silently would strand the load, so the watcher takes over and calls back in when the button reads on again.
+      if (!areNativeCaptionsEnabled()) {
+        watchCaptionsButton();
+        return;
+      }
 
       if (!requested || STATE.triggerAttempts < CFG.maxTriggerAttempts) {
         triggerCaptionLoad();
+        return;
+      }
+
+      // The quick reloads are over and nothing has arrived. The file still usually turns up, so keep asking slowly and say nothing: announcing failure here is wrong far more often than it is right.
+      const waitedMs = Math.round(performance.now()) - STATE.firstTriggerAtMs;
+      if (waitedMs < CFG.giveUpAfterMs) {
+        captionLoadDebug('trigger_still_waiting', { waitedMs });
+        clearTriggerRetry();
+        STATE.triggerRetryId = setTimeout(() => {
+          STATE.triggerRetryId = null;
+          triggerCaptionLoad();
+        }, CFG.slowRetryMs);
         return;
       }
 
@@ -1818,7 +1964,8 @@
       log('asr track lang=' + STATE.asrLang + ' for ' + vid);
     }
 
-    if (STATE.enabled && !STATE.chunks.length && areNativeCaptionsEnabled()) {
+    // Captions being off is not a reason to stop here any more: the load path waits for the button.
+    if (STATE.enabled && !STATE.chunks.length) {
       setStatus('loading');
       waitForPlayerThenTrigger();
     }
@@ -1828,8 +1975,7 @@
     if (
       STATE.statusMode === 'active' ||
       !STATE.enabled ||
-      STATE.chunks.length ||
-      !areNativeCaptionsEnabled()
+      STATE.chunks.length
     ) return;
     if (STATE.triggerRetryId) return;
     clearTriggerRetry();
@@ -2566,6 +2712,10 @@ async function chunkWords(words, cfg, requestId) {
     STATE.lastText   = null;
     STATE.triggered  = false;
     STATE.triggerAttempts = 0;
+    STATE.firstTriggerAtMs = 0;
+    STATE.captionsToggles = 0;
+    stopWatchingCaptionsButton();
+    STATE.captionsWatcher = null;
     STATE.statusMode = 'idle';
     STATE.timedtextRequestCount = 0;
     STATE.timedtextResponseCount = 0;
