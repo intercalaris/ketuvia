@@ -607,7 +607,45 @@ def cmd_popup(args):
     return [], 'popup captured', ''
 
 
-COMMANDS = {'flows': cmd_flows, 'fit': cmd_fit, 'text': cmd_text, 'lines': cmd_lines,
+def cmd_pipmirror(args):
+    """Firefox's pop-out copies the first caption element in YouTube's container, so it has to be Ketuvia's."""
+    vid = args[0] if args else DEFAULT_VIDEO
+    match = f'*{vid}*'
+    H.open_video(f'https://www.youtube.com/watch?v={vid}')
+    H.apply_settings(JOHAN)
+
+    snap = H.send('snapshot', {'match': match, 'globals': ['navigator.userAgent']})
+    agent = ((snap or {}).get('page') or {}).get('navigator.userAgent') or ''
+    if 'firefox' not in agent.lower():
+        print('  not Firefox, so there is no pop-out to feed', flush=True)
+        return [], 'pop-out mirror does not apply to this browser', ''
+
+    bad = []
+    for attempt in range(6):
+        H.send('video', {'match': match, 'seek': 40 + attempt * 12, 'play': True, 'mute': True})
+        time.sleep(3)
+        d = H.send('pipdiag', {'match': match}) or {}
+        overlay = (d.get('overlay') or '').strip()
+        if not overlay:
+            continue
+        copied = ' '.join((d.get('firefoxWouldRead') or '').split(' / ')).strip()
+        print(f'  ours first={d.get("firstChildIsOurs")} present={d.get("ourNodePresent")} '
+              f'copied={copied[:44]!r} overlay={overlay[:44]!r}', flush=True)
+        if not d.get('ourNodePresent'):
+            bad.append('Ketuvia has no element in YouTube\'s caption container')
+        if d.get('firstChildIsOurs') is not True:
+            bad.append('Ketuvia\'s element is not the one the pop-out would read')
+        # The rows are re-broken for the pop-out, so compare the words rather than the line breaks.
+        if copied.split() != overlay.split():
+            bad.append(f'the pop-out would show {copied[:40]!r}, the player shows {overlay[:40]!r}')
+        break
+    else:
+        raise H.SetupError('no caption appeared, nothing was tested')
+
+    return bad, 'the pop-out reads Ketuvia\'s phrasing', 'THE POP-OUT WOULD NOT SHOW KETUVIA\'S PHRASING'
+
+
+COMMANDS = {'flows': cmd_flows, 'fit': cmd_fit, 'text': cmd_text, 'lines': cmd_lines, 'pipmirror': cmd_pipmirror,
             'width': cmd_width, 'panel': cmd_panel, 'multitab': cmd_multitab, 'latency': cmd_latency, 'ccbutton': cmd_ccbutton, 'staleprefs': cmd_staleprefs, 'afterupdate': cmd_afterupdate, 'flicker': cmd_flicker,
             'popup': cmd_popup}
 

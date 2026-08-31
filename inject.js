@@ -387,6 +387,50 @@
       video: video ? { paused: video.paused, currentTime: Math.round((video.currentTime || 0) * 10) / 10, readyState: video.readyState } : null,
       overlay: overlay ? { present: true, dataEmpty: overlay.dataset.empty, text: (overlay.textContent || '').slice(0, 60) } : { present: false },
       ccButtonAria: ffSafe(() => { const b = document.querySelector('.ytp-subtitles-button'); return b ? b.getAttribute('aria-pressed') : null; }),
+      pip: ffPipSnapshot(),
+    };
+  }
+
+  // Everything needed to tell which path Firefox's picture-in-picture took and what it would copy.
+  function ffPipSnapshot() {
+    const container = document.getElementById('ytp-caption-window-container');
+    const ours = container && container.querySelector('.caption-window[data-ketuvia-pip]');
+    const firstCaptionsText = container && container.querySelector('.captions-text');
+    const overlayText = document.querySelector('#rechunk-overlay .rechunk-text');
+    const overlayBox = document.getElementById('rechunk-overlay');
+    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    return {
+      // A subtitles or captions track in "showing" mode makes Firefox render that track's cues and ignore the page entirely.
+      textTracks: ffSafe(() => Array.prototype.map.call(video.textTracks || [],
+        t => ({ kind: t.kind, mode: t.mode, label: t.label, cues: t.cues ? t.cues.length : null }))),
+      containerPresent: Boolean(container),
+      captionWindows: container ? container.querySelectorAll('.caption-window').length : 0,
+      ourNodePresent: Boolean(ours),
+      ourNodeIsFirstChild: container && container.firstElementChild
+        ? container.firstElementChild === ours
+        : null,
+      // Exactly what Firefox's YouTube wrapper would copy into the pop-out right now.
+      firefoxWouldCopy: ffSafe(() => Array.prototype.map.call(
+        firstCaptionsText.querySelectorAll('.caption-visual-line'), n => n.textContent).join('\n').slice(0, 120)),
+      overlayNow: overlayText ? (overlayText.textContent || '').slice(0, 120) : null,
+      // The rows the player actually drew, so a failure to read them can be told apart from them genuinely being one row.
+      playerRows: ffSafe(() => playerRenderedLines()),
+      playerRowWidthsEm: ffSafe(() => (playerRenderedLines() || []).map(l => Math.round(pipTextWidthEm(l) * 10) / 10)),
+      // What Ketuvia emitted for the pop-out, so a lost row can be told apart from a fuller one.
+      pipRows: ffSafe(() => (STATE.pipText || '').split('\n')),
+      pipRowCount: ffSafe(() => (STATE.pipText || '').split('\n').length),
+      pipLineBudgetEm: ffSafe(() => Math.round(pipLineBudgetEm() * 10) / 10),
+      pipTargetLines: ffSafe(() => STATE.settings.targetLines),
+      pipTextSize: ffSafe(() => STATE.settings.textSize),
+      videoAspect: ffSafe(() => {
+        const v = document.querySelector('video.html5-main-video') || document.querySelector('video');
+        return v && v.videoHeight ? Math.round((v.videoWidth / v.videoHeight) * 100) / 100 : null;
+      }),
+      overlayStyle: ffSafe(() => {
+        const cs = getComputedStyle(overlayText);
+        const box = getComputedStyle(overlayBox);
+        return { color: cs.color, fontFamily: box.fontFamily, fontSize: box.fontSize, background: box.backgroundColor };
+      }),
     };
   }
 
@@ -508,6 +552,12 @@
     firstTriggerAtMs: 0,
     captionsToggles: 0,
     captionsWatcher: null,
+    pipObserver: null,
+    pipContainer: null,
+    pipText: '',
+    pipSource: null,
+    pipLines: null,
+    pipNode: null,
     timedtextRequestCount: 0,
     timedtextResponseCount: 0,
     lastTimedtextRequest: null,
@@ -615,6 +665,7 @@
       STATE.overlay.dataset.empty = '1';
     }
     STATE.lastText = null;
+    teardownPipMirror();
     if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);
   }
 
@@ -2602,6 +2653,196 @@ async function chunkWords(words, cfg, requestId) {
   const _captionHideStyle = document.createElement('style');
   _captionHideStyle.textContent = '.ytp-caption-window-container{visibility:hidden!important}';
 
+  const PIP_CONTAINER_ID = 'ytp-caption-window-container';
+
+  // Firefox's picture-in-picture reads the first .captions-text inside YouTube's caption container and copies its text into the pop-out, so a hidden Ketuvia node kept first is what puts our phrasing there instead of YouTube's word-by-word.
+  function ensurePipMirror(container) {
+    let win = STATE.pipNode;
+    if (!win || win.parentNode !== container) win = container.querySelector('.caption-window[data-ketuvia-pip]');
+    if (!win) {
+      win = document.createElement('div');
+      win.className = 'caption-window';
+      win.dataset.ketuviaPip = '1';
+      // The styles never change afterwards, so they are set once here rather than on every caption mutation.
+      win.style.setProperty('visibility', 'hidden', 'important');
+      win.style.setProperty('opacity', '0', 'important');
+      const text = document.createElement('div');
+      text.className = 'captions-text';
+      win.appendChild(text);
+      container.insertBefore(win, container.firstChild);
+    }
+    STATE.pipNode = win;
+    return win;
+  }
+
+  function writePipMirror() {
+    if (!FFDIAG.isFirefox) return;
+    const container = document.getElementById(PIP_CONTAINER_ID);
+    if (!container) return;
+    const win = ensurePipMirror(container);
+    if (win !== container.firstElementChild) container.insertBefore(win, container.firstElementChild);
+    const text = win.querySelector('.captions-text');
+    if (!text) return;
+    const lines = STATE.pipLines || [''];
+    const existing = text.querySelectorAll('.caption-visual-line');
+    const unchanged = existing.length === lines.length
+      && Array.prototype.every.call(existing, (el, i) => el.textContent === lines[i]);
+    if (unchanged) return;
+    // Rebuilding the lines is a childList change, which is the mutation Firefox's observer listens for.
+    text.textContent = '';
+    for (const line of lines) {
+      const visual = document.createElement('div');
+      visual.className = 'caption-visual-line';
+      visual.textContent = line;
+      text.appendChild(visual);
+    }
+  }
+
+  // Firefox sizes the pop-out caption box from the window width (0.88vw) and its font from the window height (0.06vh), so the two cancel and the characters that fit on a line depend only on the video's aspect ratio, not on how large the viewer has dragged the window.
+  function pipLineBudgetEm() {
+    const video = document.querySelector('video.html5-main-video') || document.querySelector('video');
+    const width = (video && video.videoWidth) || 16;
+    const height = (video && video.videoHeight) || 9;
+    return (0.88 / 0.06) * (height ? width / height : 16 / 9);
+  }
+
+  let _pipMeasureContext = null;
+
+  // Firefox draws those captions in sans-serif, so measure in that face and express the width in em.
+  function pipTextWidthEm(text) {
+    if (!_pipMeasureContext) {
+      _pipMeasureContext = document.createElement('canvas').getContext('2d');
+      // The face and size never vary, so setting them once avoids re-parsing the font on every measurement.
+      _pipMeasureContext.font = '100px sans-serif';
+    }
+    return _pipMeasureContext.measureText(text).width / 100;
+  }
+
+  // Each word is measured once and the widths are added up, so the balancing passes below are arithmetic rather than hundreds of fresh measurements.
+  function pipWrapAt(words, widths, spaceEm, budgetEm) {
+    const lines = [];
+    let start = 0;
+    let width = 0;
+    for (let i = 0; i < words.length; i++) {
+      const added = i > start ? spaceEm + widths[i] : widths[i];
+      if (i > start && width + added > budgetEm) {
+        lines.push(words.slice(start, i).join(' '));
+        start = i;
+        width = widths[i];
+      } else {
+        width += added;
+      }
+    }
+    if (start < words.length) lines.push(words.slice(start).join(' '));
+    return lines;
+  }
+
+  function wrapForPip(text) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    if (!words.length) return [''];
+    const widths = words.map(pipTextWidthEm);
+    const spaceEm = pipTextWidthEm(' ');
+    const budget = pipLineBudgetEm();
+    const lines = pipWrapAt(words, widths, spaceEm, budget);
+    if (lines.length < 2) return lines;
+    // The narrowest budget that still fits the same number of rows evens them out, so no row is left with one word.
+    let low = budget * 0.4;
+    let high = budget;
+    let best = lines;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const middle = (low + high) / 2;
+      const candidate = pipWrapAt(words, widths, spaceEm, middle);
+      if (candidate.length <= lines.length) {
+        best = candidate;
+        high = middle;
+      } else {
+        low = middle;
+      }
+    }
+    return best;
+  }
+
+  // The rows the player actually drew, found by asking where each word landed. Matching them keeps the pop-out split identical to the page, whatever font and width the viewer chose.
+  function playerRenderedLines() {
+    const element = STATE.overlayText;
+    const node = element && element.firstChild;
+    if (!node || node.nodeType !== 3) return null;
+    const source = node.textContent || '';
+    if (!source.trim()) return null;
+    const range = document.createRange();
+    const lines = [];
+    let current = '';
+    let lineTop = null;
+    const word = /\S+/g;
+    let match = word.exec(source);
+    while (match) {
+      range.setStart(node, match.index);
+      range.setEnd(node, match.index + match[0].length);
+      const top = Math.round(range.getBoundingClientRect().top);
+      if (lineTop === null) lineTop = top;
+      if (top !== lineTop) {
+        lines.push(current);
+        current = match[0];
+        lineTop = top;
+      } else {
+        current = current ? current + ' ' + match[0] : match[0];
+      }
+      match = word.exec(source);
+    }
+    if (current) lines.push(current);
+    return lines.length ? lines : null;
+  }
+
+  // Firefox re-breaks any row wider than the pop-out, so the player's rows are only worth copying when they all fit.
+  function linesForPip(text) {
+    const rendered = playerRenderedLines();
+    if (rendered && rendered.join(' ') === String(text || '').replace(/\s+/g, ' ').trim()) {
+      const budget = pipLineBudgetEm();
+      if (rendered.every(line => pipTextWidthEm(line) <= budget)) return rendered;
+    }
+    return wrapForPip(text);
+  }
+
+  function updatePipMirror(text) {
+    if (!FFDIAG.isFirefox) return;
+    // A forced re-render, from a settings change or a resize, arrives with the same phrase, so the measuring is skipped unless the words actually changed.
+    const source = text || '';
+    if (source !== STATE.pipSource) {
+      STATE.pipSource = source;
+      STATE.pipLines = linesForPip(source);
+      STATE.pipText = STATE.pipLines.join('\n');
+    }
+    const container = document.getElementById(PIP_CONTAINER_ID);
+    if (!container) return;
+    if (!STATE.pipObserver || STATE.pipContainer !== container) {
+      if (STATE.pipObserver) STATE.pipObserver.disconnect();
+      STATE.pipObserver = new MutationObserver(() => writePipMirror());
+      // Only direct children matter: a caption box inserted above ours is what would take our place. Watching the subtree would fire on every word YouTube redraws and change nothing.
+      STATE.pipObserver.observe(container, { childList: true });
+      STATE.pipContainer = container;
+    }
+    writePipMirror();
+  }
+
+  function teardownPipMirror() {
+    if (STATE.pipObserver) {
+      try {
+        STATE.pipObserver.disconnect();
+      } catch (e) {}
+    }
+    const node = STATE.pipNode;
+    STATE.pipObserver = null;
+    STATE.pipContainer = null;
+    STATE.pipText = '';
+    STATE.pipSource = null;
+    STATE.pipLines = null;
+    STATE.pipNode = null;
+    const container = document.getElementById(PIP_CONTAINER_ID);
+    const win = node || (container && container.querySelector('.caption-window[data-ketuvia-pip]'));
+    if (win && win.parentNode) win.parentNode.removeChild(win);
+  }
+
+
   function renderCurrentCaption(force = false) {
     if (!STATE.overlay || !STATE.enabled) return;
     if (areNativeCaptionsEnabled() === false) {
@@ -2654,6 +2895,7 @@ async function chunkWords(words, cfg, requestId) {
     if (STATE.overlayText) {
       STATE.overlayText.textContent = active;
     }
+    updatePipMirror(active);
     STATE.overlay.dataset.empty = active ? '0' : '1';
     STATE.overlay.dataset.creatorLine =
       activeIndex >= 0 && STATE.chunks[activeIndex]?.fromCreatorLine ? '1' : '0';
@@ -2690,6 +2932,7 @@ async function chunkWords(words, cfg, requestId) {
     if (STATE.resizeTimerId) clearTimeout(STATE.resizeTimerId);
     if (STATE.resizeLayoutTimerId) clearTimeout(STATE.resizeLayoutTimerId);
     if (STATE.resizeObserver) STATE.resizeObserver.disconnect();
+    teardownPipMirror();
     if (STATE.overlay && STATE.overlay.parentNode) STATE.overlay.parentNode.removeChild(STATE.overlay);
     if (STATE.measurer && STATE.measurer.parentNode) STATE.measurer.parentNode.removeChild(STATE.measurer);
     if (document.head.contains(_captionHideStyle)) document.head.removeChild(_captionHideStyle);

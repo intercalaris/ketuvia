@@ -17,6 +17,26 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - **Chrome Web Store OAuth refresh token expires every 7 days** because the Google Cloud OAuth consent screen is in Testing mode. Fix: go to the OAuth consent screen in Google Cloud Console and publish the app (switch from Testing to Production). Until then, the `CWS_REFRESH_TOKEN` GitHub secret needs to be manually rotated every week.
   - Fixed 2026-05-16: switched OAuth consent screen to Production mode. Token no longer expires.
 
+## Version 4.4.0
+
+- Firefox's picture-in-picture window now shows Ketuvia's phrase captions instead of YouTube's
+  word-by-word text. Firefox builds those captions by copying the first caption element it finds in
+  YouTube's caption container, which was always YouTube's own, so the pop-out kept showing the
+  captions Ketuvia exists to replace. Ketuvia now keeps a hidden element carrying the current phrase
+  at the top of that container, so the pop-out copies the phrase instead. The captions on the page
+  are unchanged.
+- The pop-out breaks its lines where the player breaks them, so the two read the same. The line
+  breaks are taken from the rows the player actually drew, which already reflect the chosen font,
+  caption width and line count. When a row is too wide for the pop-out, and Firefox would re-break
+  it anyway, Ketuvia wraps the phrase to the pop-out's own width and evens the rows instead.
+- Colour, font, size and position still come from Firefox in that window. It accepts only the
+  caption text from the page and draws it in its own white sans-serif, so those settings cannot
+  cross. Mozilla has open requests to make pop-out subtitles customizable.
+- Nothing changes in Chrome or Brave, which have no equivalent pop-out; the new code runs only in
+  Firefox.
+- The release checks now include one that fails if the pop-out would show YouTube's captions rather
+  than Ketuvia's.
+
 ## Version 4.3.9
 
 - Captions no longer load invisibly above the player. During a slow page load, YouTube parks the

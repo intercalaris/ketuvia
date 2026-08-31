@@ -33,6 +33,7 @@ LIVE = [
     ('an open tab obeys after an update', ['afterupdate']),
     ('a missing subtitles button', ['ccbutton']),
     ('leftover page settings', ['staleprefs']),
+    ('the pop-out reads Ketuvia', ['pipmirror']),
 ]
 
 
