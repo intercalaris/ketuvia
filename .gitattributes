@@ -1,0 +1,9 @@
+# Keep line endings LF in the repository whatever the machine does locally, so a tool that rewrites a file wholesale cannot turn 15 real changes into a 1300-line diff.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.xpi binary
+*.zip binary
