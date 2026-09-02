@@ -110,10 +110,34 @@ main {
 }
 
 .top-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  /* The header is the same two-column grid as every other row: Ketuvia and Reset split the left column, Manual CC fills the right. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 10px;
+  /* Reset has no label above it, so it lines up with the pill row rather than floating at label height. */
+  align-items: end;
   margin-top: 0;
+}
+
+.header-left {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 6px;
+  align-items: end;
+}
+
+.top-row #reset {
+  width: 100%;
+}
+
+.top-row .segments button {
+  flex: 1 1 0;
+}
+
+.ketuvia-segments,
+.manual-cc-segments {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Three toggles even across the cell, each label centred above its switch like every other setting. */
@@ -142,9 +166,16 @@ main {
 
 
 .ketuvia-setting {
+  /* Label above its control, the same rhythm as every other setting in the panel. */
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+/* A label squeezed by the row breaks into two lines, which reads as a different control. */
+.ketuvia-setting span {
+  white-space: nowrap;
 }
 
 .caps-row {
@@ -232,6 +263,13 @@ main {
   width: auto;
   flex: 1 1 auto;
   padding: 0 4px;
+}
+
+/* Rechunk and Keep are words, so each takes the room its label needs, with a floor so Keep is not a stub beside Rechunk. */
+.manual-cc-segments button {
+  width: auto;
+  min-width: 42px;
+  padding: 0 6px;
 }
 
 /* Colour swatches read as colour, so the label is the colour itself and the active one gets a ring. */
@@ -331,14 +369,13 @@ main {
 }
 
 #reset {
-  width: 46px;
+  width: 52px;
   height: 20px;
   border: 0;
   border-radius: 6px;
   color: #aaa89e;
   background: #191a14;
   font: inherit;
-  font-size: 11px;
   cursor: pointer;
 }
 

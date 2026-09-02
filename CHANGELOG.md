@@ -17,6 +17,26 @@ Ketuvia is a Chrome/Firefox extension that replaces YouTube's default word-by-wo
 - **Chrome Web Store OAuth refresh token expires every 7 days** because the Google Cloud OAuth consent screen is in Testing mode. Fix: go to the OAuth consent screen in Google Cloud Console and publish the app (switch from Testing to Production). Until then, the `CWS_REFRESH_TOKEN` GitHub secret needs to be manually rotated every week.
   - Fixed 2026-05-16: switched OAuth consent screen to Production mode. Token no longer expires.
 
+## Version 4.5.0
+
+- New Manual CC setting in the panel header, Rechunk or Keep. Some channels hand-write their own
+  timestamped captions, and Ketuvia rebuilt those into its own phrases like everything else, so the
+  captions stopped matching what the author wrote. Keep shows the channel's captions exactly as
+  written, in Ketuvia's font, color, position and background; the line count then follows the
+  channel rather than the Lines setting. Rechunk is the default and is today's behavior unchanged,
+  including leaving song lyrics and poetry as written. Flipping the setting takes effect on the
+  spot, with no reload. Requested by a user for Technology Connections' hand-made captions.
+- Broadcast news captions are readable. Stations that reuse their live TV feed deliver captions two
+  characters at a time, cut mid-word, and Ketuvia treated every fragment as a word, so "GOING TO"
+  rendered as "GO IN G TO". Fragments that continue a word are now glued back together. Verified
+  letter-for-letter identical text, only the spacing repaired.
+- Ketuvia works on Firefox for Android and the add-on is now listed for it. Mobile YouTube has no
+  subtitles button, and Ketuvia read that as captions being off, so it never drew. When there is no
+  button, it now reads whether YouTube is drawing captions instead. Desktop keeps its button logic
+  untouched.
+- The header of the settings panel is on the same two-column grid as the rest: Ketuvia and Reset
+  share the left column, Manual CC fills the right.
+
 ## Version 4.4.0
 
 - Firefox's picture-in-picture window now shows Ketuvia's phrase captions instead of YouTube's

@@ -41,9 +41,16 @@ def source_hash():
     h = hashlib.sha256()
     for name in sorted(SHIPPED):
         path = os.path.join(ROOT, name)
-        if os.path.exists(path):
-            h.update(name.encode())
-            h.update(open(path, 'rb').read())
+        if not os.path.exists(path):
+            continue
+        data = open(path, 'rb').read()
+        # No check reads the version string, so bumping it must not void an eight-minute run.
+        if name == 'manifest.json':
+            mf = json.loads(data.decode('utf-8'))
+            mf['version'] = ''
+            data = json.dumps(mf, sort_keys=True).encode()
+        h.update(name.encode())
+        h.update(data)
     return h.hexdigest()
 
 
@@ -55,6 +62,13 @@ def run(label, cmd, cwd=None):
     tail = [l for l in (r.stdout or '').strip().splitlines() if l.strip()][-1:] or ['no output']
     mark = 'ok ' if r.returncode == 0 else 'BAD'
     print(f'  {mark} {label}  ({time.time() - started:.0f}s)  {tail[0][:80]}', flush=True)
+    if r.returncode != 0:
+        # A check that fails has to say why here. Keeping only its last line means reproducing the
+        # failure before it can even be read, and an intermittent one may not come back.
+        for stream, text in (('', r.stdout), ('stderr: ', r.stderr)):
+            for line in (text or '').strip().splitlines():
+                if line.strip():
+                    print(f'      {stream}{line}', flush=True)
     return r.returncode == 0, tail[0][:120]
 
 

@@ -30,6 +30,8 @@ USAGE = """ketcheck.py <command> [args]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_VIDEO = '4soZ33MvlW4'
+# Videos are played fast so a check covers more of one in less time. Any delay read off the video has to be divided by this to mean anything.
+PLAYBACK_RATE = 3
 DESKTOP = os.path.abspath(os.path.join(HARNESS, '..', 'desktop', 'desktop.py'))
 
 DEFAULTS = {'targetLines': 2, 'textSize': 'medium', 'font': 'atkinson', 'position': 'center-low',
@@ -104,7 +106,7 @@ def cmd_flows(args):
         H.apply_settings(settings)
         trace = H.wait_for_trace(f'*{vid}*')
         over = sum(1 for t in trace if (t.get('lines') or 0) > settings['targetLines'])
-        caps = H.captions(f'*{vid}*', 8, seek=seek, rate=3)
+        caps = H.captions(f'*{vid}*', 8, seek=seek, rate=PLAYBACK_RATE)
         stranded = sum(1 for c in caps
                        if len(c.get('rows') or []) > 1 and len(c['rows'][-1]['text'].split()) == 1)
         timed = []
@@ -112,7 +114,8 @@ def cmd_flows(args):
             due = scheduled_at(c['text'], trace)
             # A caption scheduled before the seek was already on screen, so its lateness is the seek, not the extension.
             if due is not None and due >= seek:
-                timed.append((round((c.get('t') or 0) - due, 1), c))
+                # Both times are read off the video, which is fast-forwarded to keep this check quick, so every delay is multiplied by the speed. Dividing by it gives the delay a person would actually have waited, which is what the limit below is about. Ketuvia repaints every 100ms, so at 3x one missed repaint alone reads as 0.3s.
+                timed.append((round(((c.get('t') or 0) - due) / PLAYBACK_RATE, 1), c))
         worst_pair = max(timed, key=lambda dc: abs(dc[0])) if timed else None
         worst = worst_pair[0] if worst_pair else None
         if worst_pair and abs(worst) > 1.5:
@@ -261,6 +264,7 @@ CONTROLS = [
     ('background', ['0', '100', '50']),
     ('textOpacity', ['50', '100']),
     ('textSize', ['small', 'xxlarge', 'medium']),
+    ('manualCaptions', ['keep', 'rechunk']),
 ]
 TOGGLES = ['caps-toggle', 'outline-toggle', 'bold-toggle']
 TOGGLE_KEY = {'caps-toggle': 'allCaps', 'outline-toggle': 'textOutline', 'bold-toggle': 'textBold'}
@@ -368,7 +372,7 @@ def cmd_afterupdate(args):
 
 
 # The settings a real user reported the fault on, rather than the defaults.
-JOHAN = {'targetLines': 2, 'textSize': 'xlarge', 'font': 'noto', 'position': 'center-lowish',
+TV_PRESET = {'targetLines': 2, 'textSize': 'xlarge', 'font': 'noto', 'position': 'center-lowish',
          'allCaps': False, 'textColor': 'yellow', 'textOpacity': 75, 'background': 100,
          'captionWidth': 'half', 'textOutline': False, 'textBold': False}
 
@@ -413,7 +417,7 @@ def cmd_ccbutton(args):
     match = f'*{vid}*'
     pairs = word_times(vid)
     H.open_video(f'https://www.youtube.com/watch?v={vid}')
-    H.apply_settings(JOHAN)
+    H.apply_settings(TV_PRESET)
     H.send('video', {'match': match, 'seek': round(pairs[0][1]) + 3 if pairs else 5,
                      'play': True, 'mute': True})
     time.sleep(3)
@@ -440,7 +444,7 @@ def cmd_ccbutton(args):
     print(f'  without the button: empty={empty_gone}, caption {text_gone[:34]!r}', flush=True)
 
     # A settings change while the button is away: does it survive?
-    H.send('storage.set', {'ketuviaSettings': dict(JOHAN, textSize='small')})
+    H.send('storage.set', {'ketuviaSettings': dict(TV_PRESET, textSize='small')})
     time.sleep(2)
     size_while_gone = rendered_font(match)
 
@@ -483,7 +487,7 @@ def cmd_latency(args):
     match = f'*{vid}*'
     pairs = word_times(vid)
     H.open_video(f'https://www.youtube.com/watch?v={vid}')
-    H.apply_settings(JOHAN)
+    H.apply_settings(TV_PRESET)
     H.send('video', {'match': match, 'seek': round(pairs[0][1]) + 3 if pairs else 5,
                      'play': True, 'mute': True})
     time.sleep(3)
@@ -497,7 +501,7 @@ def cmd_latency(args):
         pre = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
                                'prop': prop, 'ms': 1, 'everyMs': 10}, timeout=20)
         before_value = pre[0] if isinstance(pre, list) and pre else None
-        H.send('storage.set', {'ketuviaSettings': dict(JOHAN, **{setting: value})})
+        H.send('storage.set', {'ketuviaSettings': dict(TV_PRESET, **{setting: value})})
         series = H.send('watch', {'match': match, 'selector': '#rechunk-overlay .rechunk-text',
                                   'prop': prop, 'ms': 3000, 'everyMs': 50}, timeout=45)
         if not isinstance(series, list) or not series:
@@ -595,12 +599,9 @@ def cmd_popup(args):
     if not isinstance(url, str) or not url:
         raise H.SetupError(f'no popup url: {url}')
     H.send('tabs.only', {'url': url})
-    time.sleep(5)
-    r = subprocess.run([sys.executable, DESKTOP,
-                        'shotwin', 'Ketuvia', out_png],
-                       capture_output=True, text=True, encoding='utf-8')
-    print((r.stdout or r.stderr).strip(), flush=True)
-    size = os.path.getsize(out_png) if os.path.exists(out_png) else 0
+    time.sleep(3)
+    # The browser photographs its own tab, so this is instant and cannot capture some other window that happens to share a title.
+    size = H.screenshot(out_png, match='*moz-extension*')
     if size < 5000:
         raise H.SetupError(f'screenshot is {size} bytes, a blank window rather than the popup')
     print(f'saved {out_png} ({size} bytes)', flush=True)
@@ -612,7 +613,7 @@ def cmd_pipmirror(args):
     vid = args[0] if args else DEFAULT_VIDEO
     match = f'*{vid}*'
     H.open_video(f'https://www.youtube.com/watch?v={vid}')
-    H.apply_settings(JOHAN)
+    H.apply_settings(TV_PRESET)
 
     snap = H.send('snapshot', {'match': match, 'globals': ['navigator.userAgent']})
     agent = ((snap or {}).get('page') or {}).get('navigator.userAgent') or ''

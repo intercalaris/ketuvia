@@ -79,7 +79,10 @@
     position: 'center-low',
     font: 'atkinson',
     allCaps: false,
+    manualCaptions: 'rechunk',
   };
+  // Hand-made captions are either rebuilt to fill the chosen lines or kept exactly as the channel wrote them.
+  const MANUAL_CC_MODES = ['rechunk', 'keep'];
   // Background is a percentage now. 0 is no box at all, 100 is a solid block that hides subtitles burned into the picture. The old strings map onto the scale so nobody's stored choice reverts.
   const BACKGROUND_LEVELS = [0, 25, 50, 75, 100];
   const LEGACY_BACKGROUND = { light: 25, medium: 50, dark: 75 };
@@ -186,6 +189,9 @@
       allCaps,
       textOutline,
       textBold,
+      manualCaptions: MANUAL_CC_MODES.includes(settings?.manualCaptions)
+        ? settings.manualCaptions
+        : DEFAULT_SETTINGS.manualCaptions,
     };
   }
 
@@ -583,13 +589,25 @@
       player?.querySelector('.ytp-subtitles-button') ||
       document.querySelector('.ytp-subtitles-button');
 
-    if (!button) return null;
+    if (!button) return youtubeIsDrawingCaptions();
 
     const ariaPressed = button.getAttribute('aria-pressed');
     if (ariaPressed === 'true') return true;
     if (ariaPressed === 'false') return false;
 
     return button.classList.contains('ytp-button-active');
+  }
+
+  // Mobile YouTube has no subtitles button at all, so the captions on screen are the only honest answer to whether captions are on. They are still readable because Ketuvia only hides YouTube's with visibility, which keeps the text in the page. Our own pop-out mirror lives in the same container and is not evidence of itself.
+  function youtubeIsDrawingCaptions() {
+    const container = document.getElementById('ytp-caption-window-container');
+    if (!container) return null;
+    for (const win of container.querySelectorAll('.caption-window')) {
+      if (win.hasAttribute('data-ketuvia-pip')) continue;
+      if ((win.textContent || '').trim()) return true;
+    }
+    // The container exists but is empty, which is what a paused or silent moment looks like too, so this is still unknown rather than off.
+    return null;
   }
 
   // The button turns on by itself a few seconds into a video, and can be turned on by hand at any point, so it is watched rather than read at a few chosen moments.
@@ -611,8 +629,12 @@
       }
     });
     try {
+      // Watching for children too costs a callback on every change YouTube makes to the player, so it is only done where there is no button, which is the one case an attribute can never report.
+      const noButton = !(getPlayerElement()?.querySelector('.ytp-subtitles-button')
+                         || document.querySelector('.ytp-subtitles-button'));
       STATE.captionsWatcher.observe(player, {
         subtree: true, attributes: true, attributeFilter: ['aria-pressed', 'title'],
+        childList: noButton,
       });
     } catch {
       STATE.captionsWatcher = null;
@@ -727,6 +749,15 @@
       previousSettings.textBold !== STATE.settings.textBold ||
       // Width feeds the wrap simulation, so captions must be rebuilt for it or every measurement is for the old box.
       previousSettings.captionWidth !== STATE.settings.captionWidth;
+
+    // Keep or rechunk changes the words themselves, so the stored caption file is re-read rather than re-wrapping words that carry the old boundaries.
+    if (previousSettings.manualCaptions !== STATE.settings.manualCaptions) {
+      const raw = window.__ketuviaLastTimedtext;
+      if (raw?.text && raw.videoId === STATE.videoId) {
+        processTimedtext(raw.text);
+        return { ...STATE.settings };
+      }
+    }
 
     // Only a definite "captions are off" hides anything. Not being able to tell must not throw the change away.
     if (!STATE.enabled || areNativeCaptionsEnabled() === false) {
@@ -2136,7 +2167,10 @@ function lineBreaksLookMechanical(textEvents, cfg) {
 
     // Word-timed tracks carry no creator line breaks, so there is nothing to keep.
     const linesAreAuthored =
-      !manualCaptionLike || !mayRechunkAcrossLines(textEvents, CFG.fittedLines);
+      !manualCaptionLike ||
+      // Manual CC set to Keep means every hand-made caption stays as written, with no classifier asked.
+      STATE.settings?.manualCaptions === 'keep' ||
+      !mayRechunkAcrossLines(textEvents, CFG.fittedLines);
 
     return {
       events,
@@ -2174,6 +2208,9 @@ function lineBreaksLookMechanical(textEvents, cfg) {
       const base = ev.tStartMs || 0;
       const eventDurationMs = ev.dDurationMs || 0;
       const eventEndMs = base + eventDurationMs;
+      // A word never runs across an event, so the glue below only ever joins fragments inside one.
+      let prevSegText = null;
+      let prevTokenIndex = -1;
       for (const [segIndex, s] of ev.segs.entries()) {
         if (debug) debug.inputSegCount += 1;
         const text = s.utf8;
@@ -2235,6 +2272,20 @@ function lineBreaksLookMechanical(textEvents, cfg) {
           }
           subLineCounter++;
         } else {
+          // A live broadcast feed cuts its text every couple of characters without looking at where words end, so a segment that neither begins on a space nor follows one is the rest of the word before it and has to be glued back on. Splitting there is what turns "GOING TO" into "GO IN G TO".
+          const continuesPreviousWord = prevTokenIndex >= 0 && prevSegText !== null &&
+            !/^\s/.test(text) && !/\s$/.test(prevSegText);
+          prevSegText = text;
+          if (continuesPreviousWord) {
+            out[prevTokenIndex].text += text;
+            if (start > lastStart) lastStart = start;
+            continue;
+          }
+          // A segment of nothing but space only marks where a word ended, which the glue above has already read.
+          if (!text.trim()) {
+            if (debug) debug.skippedNonTextCount += 1;
+            continue;
+          }
           if (start <= lastStart) {
             if (debug) debug.skippedNonIncreasingStartCount += 1;
             continue;
@@ -2264,6 +2315,7 @@ function lineBreaksLookMechanical(textEvents, cfg) {
               });
               lastStart = wordStart;
             }
+            prevTokenIndex = out.length - 1;
             if (debug) debug.multiWordSegCount += 1;
             continue;
           }
@@ -2275,6 +2327,7 @@ function lineBreaksLookMechanical(textEvents, cfg) {
             sourceKind: eventInfo.sourceKind,
             preserveEventBoundary: false,
           });
+          prevTokenIndex = out.length - 1;
           if (debug) {
             const tokens = text.trim().split(/\s+/).filter(Boolean);
             if (tokens.length > 1) debug.multiWordSegCount += 1;

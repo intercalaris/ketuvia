@@ -8,14 +8,23 @@
   <body>
     <main>
       <section class="top-row">
+        <div class="header-left">
+          <div class="ketuvia-setting">
+            <span>Ketuvia</span>
+            <div class="segments ketuvia-segments" data-setting="ketuviaEnabled">
+              <button id="ketuvia-on" type="button" data-value="true">On</button>
+              <button id="ketuvia-off" type="button" data-value="false">Off</button>
+            </div>
+          </div>
+          <button id="reset" type="button">Reset</button>
+        </div>
         <div class="ketuvia-setting">
-          <span>Ketuvia</span>
-          <div class="segments ketuvia-segments" data-setting="ketuviaEnabled">
-            <button id="ketuvia-on" type="button" data-value="true">On</button>
-            <button id="ketuvia-off" type="button" data-value="false">Off</button>
+          <span>Manual CC</span>
+          <div class="segments manual-cc-segments" data-setting="manualCaptions" aria-label="What happens to hand-made captions">
+            <button type="button" data-value="rechunk">Rechunk</button>
+            <button type="button" data-value="keep">Keep</button>
           </div>
         </div>
-        <button id="reset" type="button">Reset</button>
       </section>
 
       <section class="font-position-row">

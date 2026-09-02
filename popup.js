@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS = {
   position: 'center-low',
   font: 'atkinson',
   allCaps: false,
+  manualCaptions: 'rechunk',
 };
 
 const toggle = document.getElementById('debug-toggle');
@@ -66,6 +67,9 @@ function normalizeSettings(settings) {
   const allCaps = Boolean(settings?.allCaps);
   const textOutline = Boolean(settings?.textOutline);
   const textBold = Boolean(settings?.textBold);
+  const manualCaptions = ['rechunk', 'keep'].includes(settings?.manualCaptions)
+    ? settings.manualCaptions
+    : DEFAULT_SETTINGS.manualCaptions;
   const position = [
     'left-top', 'center-top', 'right-top',
     'left-high', 'center-high', 'right-high',
@@ -78,7 +82,7 @@ function normalizeSettings(settings) {
     ? settings.position
     : DEFAULT_SETTINGS.position;
 
-  return { textSize, targetLines, background, position, font, allCaps, textColor, textOpacity, captionWidth, textOutline, textBold };
+  return { textSize, targetLines, background, position, font, allCaps, textColor, textOpacity, captionWidth, textOutline, textBold, manualCaptions };
 }
 
 async function getGlobalEnabled() {

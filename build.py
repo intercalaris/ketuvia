@@ -16,6 +16,8 @@ SOURCE_DIRS  = ['icons', 'fonts']
 
 FIREFOX_ADDON_ID = 'ketuvia@intercalaris'
 FIREFOX_MIN_VER  = '128.0'
+# Without a gecko_android section the add-ons site never lists Ketuvia for phones, however well it runs there. 142 is the first Android release that understands the data collection declaration below.
+FIREFOX_ANDROID_MIN_VER = '142.0'
 
 
 def copy_sources(dest: Path):
@@ -72,6 +74,9 @@ def build_firefox():
             'data_collection_permissions': {
                 'required': ['none'],
             },
+        },
+        'gecko_android': {
+            'strict_min_version': FIREFOX_ANDROID_MIN_VER,
         },
     }
     mf_path.write_text(json.dumps(mf, indent=2), encoding='utf-8')
